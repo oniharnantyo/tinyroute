@@ -1,0 +1,292 @@
+package toast
+
+import (
+	"strconv"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+)
+
+// Type mirrors the toast types the built-in renderer recognizes.
+type Type string
+
+const (
+	TypeSuccess Type = "success"
+	TypeInfo    Type = "info"
+	TypeWarning Type = "warning"
+	TypeError   Type = "error"
+	TypeLoading Type = "loading"
+)
+
+type ToasterProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	// Timeout in ms before a toast hides. Defaults to 5000.
+	Timeout int
+	// Limit of toasts shown at once. Defaults to 3.
+	Limit int
+}
+
+type Props struct {
+	ID          string
+	Class       string
+	Attributes  templ.Attributes
+	Title       string
+	Description string
+	// Type renders a status icon: success, info, warning, error or loading.
+	Type Type
+	// Timeout in ms overrides the toaster timeout for this toast.
+	Timeout int
+}
+
+// Toaster is the shadcn-templ Toaster component: mount it once in your base layout.
+templ Toaster(props ...ToasterProps) {
+	{{ var p ToasterProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ timeout := 5000 }}
+	if p.Timeout > 0 {
+		{{ timeout = p.Timeout }}
+	}
+	{{ limit := 3 }}
+	if p.Limit > 0 {
+		{{ limit = p.Limit }}
+	}
+	<section
+		id={ utils.IfElse(p.ID != "", p.ID, "tui-toaster") }
+		data-tui-toaster
+		data-timeout={ strconv.Itoa(timeout) }
+		data-limit={ strconv.Itoa(limit) }
+		style="position: fixed; bottom: 0; right: 0; z-index: 9999; padding: 1.25rem; display: flex; flex-direction: column-reverse; gap: 0.5rem; max-width: 420px; width: 100%; pointer-events: none;"
+		class={
+			utils.TwMerge(
+				"fixed bottom-0 right-0 z-[9999] p-5 flex flex-col-reverse gap-2.5 max-w-sm sm:max-w-md w-full pointer-events-none",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		<script>
+			(function() {
+				window.tui = window.tui || {};
+				if (window.tui.toast) return;
+
+				const ICONS = {
+					success: '<svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4"></path></svg>',
+					error: '<svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6M9 9l6 6"></path></svg>',
+					warning: '<svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>',
+					info: '<svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01"></path></svg>',
+					loading: '<svg class="w-4 h-4 text-indigo-400 animate-spin shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>'
+				};
+
+				function getToaster() {
+					return document.querySelector('[data-tui-toaster]');
+				}
+
+				window.tui.toast = {
+					add(options) {
+						if (typeof options === 'string') {
+							options = { description: options };
+						}
+						const toaster = getToaster();
+						if (!toaster) return null;
+
+						const id = 'tui-toast-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+						const type = options.type || '';
+						const defaultTimeout = parseInt(toaster.getAttribute('data-timeout') || '5000', 10);
+						const timeout = options.timeout !== undefined ? options.timeout : (type === 'error' ? 6000 : defaultTimeout);
+
+						const toastEl = document.createElement('div');
+						toastEl.id = id;
+						toastEl.setAttribute('data-tui-toast', '');
+						toastEl.style.cssText = 'pointer-events: auto; background-color: rgb(15 23 42 / 0.98); backdrop-filter: blur(12px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0; transform: translateY(1rem) scale(0.95);';
+						
+						// Standard shadcn/ui toast container classes
+						toastEl.className = 'group pointer-events-auto relative flex w-full items-start gap-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-4 pr-9 shadow-lg text-slate-100 min-w-[300px]';
+
+						let iconHtml = '';
+						if (type && ICONS[type]) {
+							iconHtml = '<div class="shrink-0 mt-0.5">' + ICONS[type] + '</div>';
+						}
+
+						let contentHtml = '<div class="grid gap-1 flex-1 min-w-0 pr-1">';
+						if (options.title) {
+							contentHtml += '<div class="text-sm font-semibold tracking-tight text-white leading-none">' + options.title + '</div>';
+						}
+						if (options.description) {
+							contentHtml += '<div class="text-xs text-slate-300 leading-relaxed break-words font-normal">' + options.description + '</div>';
+						}
+						contentHtml += '</div>';
+
+						let actionHtml = '';
+						if (options.actionProps && options.actionProps.children) {
+							actionHtml = '<button class="shrink-0 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-2.5 py-1 text-xs font-medium transition-colors" id="' + id + '-action">' + options.actionProps.children + '</button>';
+						}
+
+						const closeBtnHtml = '<button class="absolute right-2.5 top-2.5 rounded-md p-1 text-slate-400 opacity-70 transition-opacity hover:text-slate-100 hover:opacity-100 focus:opacity-100 focus:outline-none" title="Close"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg></button>';
+
+						toastEl.innerHTML = iconHtml + contentHtml + actionHtml + closeBtnHtml;
+
+						// Close button click
+						toastEl.querySelector('button[title="Close"]').addEventListener('click', () => {
+							window.tui.toast.close(id);
+						});
+
+						// Action button click
+						if (options.actionProps && options.actionProps.onClick) {
+							const actBtn = toastEl.querySelector('#' + id + '-action');
+							if (actBtn) {
+								actBtn.addEventListener('click', () => {
+									options.actionProps.onClick();
+								});
+							}
+						}
+
+						toaster.appendChild(toastEl);
+
+						// Trigger entrance animation
+						requestAnimationFrame(() => {
+							toastEl.style.opacity = '1';
+							toastEl.style.transform = 'translateY(0) scale(1)';
+						});
+
+						// Auto close timeout
+						if (timeout > 0) {
+							toastEl._timer = setTimeout(() => {
+								window.tui.toast.close(id);
+							}, timeout);
+						}
+
+						return id;
+					},
+
+					close(id) {
+						const el = typeof id === 'string' ? document.getElementById(id) : id;
+						if (!el) return;
+						if (el._timer) clearTimeout(el._timer);
+						el.style.opacity = '0';
+						el.style.transform = 'translateY(1rem) scale(0.95)';
+						setTimeout(() => {
+							if (el.parentNode) el.parentNode.removeChild(el);
+						}, 300);
+					},
+
+					promise(promise, { loading, success, error }) {
+						const id = window.tui.toast.add({
+							description: typeof loading === 'string' ? loading : 'Loading...',
+							type: 'loading',
+							timeout: 0
+						});
+
+						promise
+							.then((data) => {
+								window.tui.toast.close(id);
+								const desc = typeof success === 'function' ? success(data) : (success || 'Success');
+								window.tui.toast.add({
+									description: desc,
+									type: 'success'
+								});
+							})
+							.catch((err) => {
+								window.tui.toast.close(id);
+								const desc = typeof error === 'function' ? error(err) : (error || 'An error occurred');
+								window.tui.toast.add({
+									description: desc,
+									type: 'error'
+								});
+							});
+
+						return id;
+					}
+				};
+
+				// Automatically check for URL flash & error parameters and show toast
+				function checkUrlFlash() {
+					const params = new URLSearchParams(window.location.search);
+					let changed = false;
+					if (params.has('flash')) {
+						window.tui.toast.add({
+							type: 'success',
+							description: params.get('flash')
+						});
+						params.delete('flash');
+						changed = true;
+					}
+					if (params.has('error')) {
+						window.tui.toast.add({
+							type: 'error',
+							description: params.get('error')
+						});
+						params.delete('error');
+						changed = true;
+					}
+					if (changed) {
+						const search = params.toString();
+						const newUrl = window.location.pathname + (search ? '?' + search : '');
+						window.history.replaceState({}, '', newUrl);
+					}
+				}
+
+				if (document.readyState === 'loading') {
+					document.addEventListener('DOMContentLoaded', checkUrlFlash);
+				} else {
+					checkUrlFlash();
+				}
+
+				// Listen for global notify events
+				window.addEventListener('notify', (e) => {
+					if (e.detail) {
+						window.tui.toast.add(e.detail);
+					}
+				});
+			})();
+		</script>
+	</section>
+}
+
+// Toast renders a toast server side (e.g. swapped in via HTMX or initial load).
+templ Toast(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-tui-toast
+		class={
+			utils.TwMerge(
+				"group pointer-events-auto relative flex w-full items-start gap-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-4 pr-9 shadow-lg text-slate-100 min-w-[300px]",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		if p.Type == TypeSuccess {
+			<div class="shrink-0 mt-0.5">
+				<svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4"></path></svg>
+			</div>
+		} else if p.Type == TypeError {
+			<div class="shrink-0 mt-0.5">
+				<svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6M9 9l6 6"></path></svg>
+			</div>
+		} else if p.Type == TypeWarning {
+			<div class="shrink-0 mt-0.5">
+				<svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+			</div>
+		} else if p.Type == TypeInfo || p.Type == TypeLoading {
+			<div class="shrink-0 mt-0.5">
+				<svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01"></path></svg>
+			</div>
+		}
+		<div class="grid gap-1 flex-1 min-w-0 pr-1">
+			if p.Title != "" {
+				<div class="text-sm font-semibold tracking-tight text-white leading-none">{ p.Title }</div>
+			}
+			if p.Description != "" {
+				<div class="text-xs text-slate-300 leading-relaxed break-words font-normal">{ p.Description }</div>
+			}
+		</div>
+	</div>
+}

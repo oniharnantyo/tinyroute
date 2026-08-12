@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "entries": {
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1786380949451,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    },
+    "445ed27a3872b681d98190bae61ccb84954e1bc4e140df5370be958dee776b3a": {
+      "last_emitted_at_ms": 1786380351799,
+      "message": "Verify changes work after editing. Test functionality before marking complete."
+    },
+    "466399dafa2d20f60587180bad0a07358eb7f2bce724df0ff682f038ad33f5ad": {
+      "last_emitted_at_ms": 1786379718024,
+      "message": "Read multiple files in parallel when possible for faster analysis."
+    },
+    "d18477adbce70ad1a9d613a2a60f12c0d1505086677e59ad4d30768ec907a238": {
+      "last_emitted_at_ms": 1786379655645,
+      "message": "Spawning agent: Explore (inherit) | Task: Map OmniRoute Antigravity flow"
+    },
+    "68fb3c7da6cb2ed272e08ea842193ca35e837366fa757008f7d8e4eba9524035": {
+      "last_emitted_at_ms": 1786379648116,
+      "message": "Spawning agent: Explore (inherit) | Task: Map 9router Antigravity flow"
+    },
+    "df2206eca0caed6d182953d708f81ae57d99f0d7a26f8304d0120885200a14a7": {
+      "last_emitted_at_ms": 1786378263357,
+      "message": "Spawning agent: Explore (inherit) | Task: Trace route resolution error"
+    }
+  },
+  "updated_at": "2026-08-10T16:55:49.451Z"
+}

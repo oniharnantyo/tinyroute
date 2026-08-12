@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"rtk openspec archive tinyroute-core-router -y --json 2>&1\",\"description\":\"Archive tinyroute-core-router with full spec sync\"}",
+  "error": "Exit code 1\n{\n  \"archive\": null,\n  \"root\": {\n    \"path\": \"/Users/oniharnantyo/projects/tinyroute\",\n    \"source\": \"nearest\"\n  },\n  \"status\": [\n    {\n      \"severity\": \"error\",\n      \"code\": \"archive_spec_update_failed\",\n      \"message\": \"api-keys ADDED failed for header \\\"### Requirement: Inbound API keys are minted by the CLI and displayed exactly once\\\" - already exists\",\n      \"fix\": \"Fix the change delta specs and rerun. No files were changed.\"\n    }\n  ]\n}",
+  "timestamp": "2026-08-01T14:59:27.307Z",
+  "retry_count": 1
+}

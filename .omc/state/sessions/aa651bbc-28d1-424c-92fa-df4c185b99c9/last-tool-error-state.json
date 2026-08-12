@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/oniharnantyo/projects/tinyroute/openspec/changes/add-provider-models/proposal.md\"}",
+  "error": "File does not exist. Note: your current working directory is /Users/oniharnantyo/projects/tinyroute.",
+  "timestamp": "2026-08-10T16:39:20.031Z",
+  "retry_count": 1
+}

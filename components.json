@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-templ.com/schema/components.json",
+  "style": "base-vega",
+  "tailwind": {
+    "css": "internal/dashboard/assets/input.css",
+    "baseColor": "stone",
+    "cssVariables": true
+  },
+  "rtl": false,
+  "iconLibrary": "lucide",
+  "menuColor": "default-translucent",
+  "menuAccent": "subtle",
+  "aliases": {
+    "components": "github.com/oniharnantyo/tinyroute/internal/dashboard/components",
+    "utils": "github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+  }
+}

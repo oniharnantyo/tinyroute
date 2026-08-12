@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"echo \\\"=== Recorder implementations ===\\\"; rtk grep -rnE \\\"core\\\\.Recorder|func \\\\([a-z] \\\\*\\\\w+\\\\) Record\\\\(\\\" /Users/oniharnantyo/projects/tinyroute/internal 2>/dev/null | rtk grep -vE \\...",
+  "error": "Exit code 1\n\u001b]697;DoneSourcing\u0007=== Recorder implementations ===\n1:/Users/oniharnantyo/projects/tinyroute/internal/proxy/proxy.go:58:\tRecorder core.Recorder\n3:/Users/oniharnantyo/projects/tinyroute/internal/history/sqlite/store.go:11:// Store implements core.Recorder for SQLite database storage.\n4:/Users/oniharnantyo/projects/tinyroute/internal/history/sqlite/store.go:16:// NewStore wraps a DB as a core.Recorder implementation.\n5:/Users/oniharnantyo/projects/tinyroute/internal/history/sqlite/stor...",
+  "timestamp": "2026-08-03T11:12:16.244Z",
+  "retry_count": 1
+}

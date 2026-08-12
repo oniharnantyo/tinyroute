@@ -1,0 +1,103 @@
+package dashboard
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/toast"
+)
+
+templ Layout(title string, activeTab string, isDefaultPassword bool, content templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full bg-slate-950">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } - tinyroute Dashboard</title>
+			<link rel="stylesheet" href="/dashboard/assets/styles.css"/>
+			<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+		</head>
+		<body class="h-full text-slate-100 font-sans flex flex-col md:flex-row antialiased selection:bg-indigo-600 selection:text-white">
+			<!-- Mobile Navigation Header -->
+			<div class="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 p-4">
+				<div class="flex items-center space-x-2">
+					<div class="p-1.5 bg-indigo-600/20 text-indigo-400 rounded-lg border border-indigo-500/30">
+						@components.Icon("route", "w-5 h-5")
+					</div>
+					<span class="font-semibold tracking-tight text-white">tinyroute</span>
+				</div>
+				<a href="/dashboard/logout" class="text-xs text-slate-400 hover:text-white flex items-center gap-1">
+					@components.Icon("log-out", "w-4 h-4")
+					Logout
+				</a>
+			</div>
+
+			<!-- Sidebar -->
+			<aside class="w-full md:w-64 bg-slate-900/80 backdrop-blur border-r border-slate-800 flex flex-col justify-between shrink-0">
+				<div>
+					<div class="hidden md:flex items-center space-x-3 p-6 border-b border-slate-800/60">
+						<div class="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30 shadow-inner">
+							@components.Icon("route", "w-6 h-6")
+						</div>
+						<div>
+							<h1 class="font-bold text-base tracking-tight text-white">tinyroute</h1>
+							<p class="text-xs text-slate-400 font-mono">gateway dashboard</p>
+						</div>
+					</div>
+
+					<nav class="p-4 space-y-1">
+						@navItem("Overview", "/dashboard/overview", "layout-dashboard", activeTab == "overview")
+						@navItem("Providers", "/dashboard/providers", "cpu", activeTab == "providers")
+						@navItem("Routes", "/dashboard/routes", "route", activeTab == "routes")
+						@navItem("History", "/dashboard/history", "history", activeTab == "history")
+						@navItem("API Keys", "/dashboard/keys", "key", activeTab == "keys")
+						@navItem("Settings", "/dashboard/settings", "settings", activeTab == "settings")
+					</nav>
+				</div>
+
+				<div class="p-4 border-t border-slate-800/60 space-y-3">
+					if isDefaultPassword {
+						<div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start gap-2.5 shadow-sm">
+							<div class="shrink-0 mt-0.5 text-amber-400">
+								@components.Icon("alert-triangle", "w-4 h-4")
+							</div>
+							<div>
+								<p class="font-medium text-amber-200">Default Password Active</p>
+								<p class="text-amber-400/80 text-[11px] mt-0.5">Change default password in <a href="/dashboard/settings" class="underline hover:text-white font-medium">Settings</a>.</p>
+							</div>
+						</div>
+					}
+					<div class="flex items-center justify-between pt-2">
+						<span class="text-xs text-slate-500 font-mono">127.0.0.1:8787</span>
+						<a href="/dashboard/logout" class="text-xs font-medium text-slate-400 hover:text-rose-400 flex items-center gap-1 transition-colors">
+							@components.Icon("log-out", "w-3.5 h-3.5")
+							Logout
+						</a>
+					</div>
+				</div>
+			</aside>
+
+			<!-- Main View Area -->
+			<main class="flex-1 overflow-y-auto p-6 lg:p-10 bg-gradient-to-b from-slate-950 via-slate-900/50 to-slate-950">
+				<div class="max-w-7xl mx-auto">
+					@content
+				</div>
+			</main>
+
+			<!-- Global Viewport Toast Notification Center -->
+			@toast.Toaster()
+		</body>
+	</html>
+}
+
+templ navItem(label string, href string, iconName string, isActive bool) {
+	if isActive {
+		<a href={ templ.SafeURL(href) } class="flex items-center space-x-3 px-3.5 py-2.5 rounded-xl bg-indigo-600/15 text-indigo-300 font-medium text-sm border border-indigo-500/30 transition-all shadow-sm">
+			@components.Icon(iconName, "w-4 h-4 text-indigo-400")
+			<span>{ label }</span>
+		</a>
+	} else {
+		<a href={ templ.SafeURL(href) } class="flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 font-medium text-sm transition-all">
+			@components.Icon(iconName, "w-4 h-4 text-slate-500 group-hover:text-slate-300")
+			<span>{ label }</span>
+		</a>
+	}
+}

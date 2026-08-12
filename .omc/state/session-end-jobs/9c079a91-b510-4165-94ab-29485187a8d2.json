@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "jobId": "2d1888c5-ca34-4871-8e80-e3de7f243c61",
+  "sessionId": "9c079a91-b510-4165-94ab-29485187a8d2",
+  "scopeKey": "c792935d208a7cef03ba396425ef4d89db5096d7dc999ae8f98b73a2713a131b",
+  "revision": 31,
+  "createdAt": "2026-08-10T13:38:55.120Z",
+  "updatedAt": "2026-08-11T02:18:05.554Z",
+  "producerGraceExpiresAt": "2026-08-10T13:39:25.121Z",
+  "bestEffortDeadlineAt": "2026-08-10T13:40:16.121Z",
+  "producers": {
+    "core": {
+      "state": "sealed",
+      "intentKey": "ed64e68ab8b7f8a46c06c731cdda907afc6b7bcf23ba9447b32bd6d5dfc2de8f",
+      "payloadDigest": "ed64e68ab8b7f8a46c06c731cdda907afc6b7bcf23ba9447b32bd6d5dfc2de8f",
+      "sealedAt": "2026-08-10T13:38:55.314Z",
+      "sealedBy": "foreground"
+    },
+    "wiki": {
+      "state": "no-op",
+      "sealedAt": "2026-08-10T13:38:55.120Z",
+      "sealedBy": "wiki-producer"
+    }
+  },
+  "actions": {
+    "foreground-cleanup": {
+      "class": "required",
+      "phase": "deferred-required",
+      "status": "completed",
+      "attempts": 0,
+      "idempotencyKey": "febf6dba2f2536433960a07f7cedce72e946b43ced0896570df80f017b8914d2",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {},
+        "foregroundResult": {
+          "removedTransientFiles": 3,
+          "completedAt": "2026-08-10T13:38:55.313Z"
+        }
+      },
+      "budgetMs": 9000,
+      "completedAt": "2026-08-10T13:38:55.314Z",
+      "lastOutcomeCode": "completed"
+    },
+    "wiki-capture": {
+      "class": "required",
+      "phase": "deferred-required",
+      "status": "completed",
+      "attempts": 0,
+      "idempotencyKey": "1719cd1ef5b51e0269b78c4cb8c9308c9c1f7b82fd1c067fc034c060f23863f5",
+      "payload": {},
+      "budgetMs": 9000,
+      "completedAt": "2026-08-10T13:38:55.120Z"
+    },
+    "team-cleanup": {
+      "class": "required",
+      "phase": "deferred-required",
+      "status": "expired",
+      "attempts": 1,
+      "idempotencyKey": "cee6ac31df545408e1e822247ac249b3f8182a98a5fe8e448ae3b251e55bdee1",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 9000,
+      "claimedAt": "2026-08-10T13:39:02.855Z",
+      "runner": {
+        "attempt": 1,
+        "runnerNonce": "3364486a-a88d-498c-984d-3442e7d40f87",
+        "phase": "terminal",
+        "deadlineAt": "2026-08-10T13:39:05.990Z"
+      },
+      "lastOutcomeCode": "required-deadline-expired"
+    },
+    "python-cleanup": {
+      "class": "required",
+      "phase": "deferred-required",
+      "status": "expired",
+      "attempts": 0,
+      "idempotencyKey": "1f1370c4ac056606059d517e2f106b602d8cbcb04587b3fcc5f3b9f89e649cd0",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 9000,
+      "lastOutcomeCode": "required-deadline-expired"
+    },
+    "reply-cleanup": {
+      "class": "required",
+      "phase": "deferred-required",
+      "status": "expired",
+      "attempts": 0,
+      "idempotencyKey": "0b3a8b47c28b26d56aca004d4f572b96c118f16819c0d35162418816f9a5420a",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 9000,
+      "lastOutcomeCode": "required-deadline-expired"
+    },
+    "callback": {
+      "class": "best-effort",
+      "phase": "deferred-best-effort",
+      "status": "expired",
+      "attempts": 0,
+      "idempotencyKey": "d068ede2655bf89e0c0950e087d0603d7dcf45538e94f20a654d08c6f4841895",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 2000,
+      "lastOutcomeCode": "deadline-expired"
+    },
+    "notification": {
+      "class": "best-effort",
+      "phase": "deferred-best-effort",
+      "status": "expired",
+      "attempts": 0,
+      "idempotencyKey": "89c0438ff63097ce04beb60efb87292ff68a7af350a0ee331f3de9dbf42d62fc",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 2000,
+      "lastOutcomeCode": "deadline-expired"
+    },
+    "openclaw": {
+      "class": "best-effort",
+      "phase": "deferred-best-effort",
+      "status": "expired",
+      "attempts": 0,
+      "idempotencyKey": "31fe8f6e1cf204e27006de511df257326fdd98655122ca437013e8779ffc735b",
+      "payload": {
+        "transcriptPath": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+        "cwd": "/Users/oniharnantyo/projects/tinyroute",
+        "reason": "clear",
+        "input": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "transcript_path": "/Users/oniharnantyo/.claude/projects/-Users-oniharnantyo-projects-tinyroute/9c079a91-b510-4165-94ab-29485187a8d2.jsonl",
+          "cwd": "/Users/oniharnantyo/projects/tinyroute",
+          "prompt_id": "997291d9-0388-4c38-b15b-4f5fcd8cc6b2",
+          "hook_event_name": "SessionEnd",
+          "reason": "clear"
+        },
+        "metrics": {
+          "session_id": "9c079a91-b510-4165-94ab-29485187a8d2",
+          "ended_at": "2026-08-10T13:38:55.115Z",
+          "reason": "clear",
+          "agents_spawned": 0,
+          "agents_completed": 0,
+          "modes_used": []
+        },
+        "initialTeamNames": [],
+        "openClawEnabled": false,
+        "openClawRouting": {}
+      },
+      "budgetMs": 2000,
+      "lastOutcomeCode": "deadline-expired"
+    }
+  },
+  "owner": null,
+  "phase": "complete",
+  "completion": {
+    "completedAt": "2026-08-11T02:18:05.384Z",
+    "terminalDigest": "d90e8d1cea4b41cffae7727a824aaf5f140b12af591d52f3d1c064e5b3378196",
+    "terminalRevision": 30
+  }
+}

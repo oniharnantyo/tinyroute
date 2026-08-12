@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-05
+goal: Make the existing multi-account engine operable from the CLI, and add
+  per-model cooldown, resets_at-aware cooldown, sticky round-robin, quota-aware
+  selection, and tiered budget fallback.

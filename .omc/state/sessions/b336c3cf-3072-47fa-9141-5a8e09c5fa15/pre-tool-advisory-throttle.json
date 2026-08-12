@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "entries": {
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1785687008755,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    },
+    "445ed27a3872b681d98190bae61ccb84954e1bc4e140df5370be958dee776b3a": {
+      "last_emitted_at_ms": 1785686294451,
+      "message": "Verify changes work after editing. Test functionality before marking complete."
+    },
+    "466399dafa2d20f60587180bad0a07358eb7f2bce724df0ff682f038ad33f5ad": {
+      "last_emitted_at_ms": 1785686206468,
+      "message": "Read multiple files in parallel when possible for faster analysis."
+    },
+    "0e8d13db386594b2289ab2cb0758dc5ff678646ac023c05f5e64cbebef6842a4": {
+      "last_emitted_at_ms": 1785685516370,
+      "message": "Spawning agent: Explore (inherit) | Task: Enumerate 9router provider catalog"
+    },
+    "3324cedd0314e16f338e212f845f148135733443a858cd7278426a62fc810878": {
+      "last_emitted_at_ms": 1785685509337,
+      "message": "Spawning agent: Explore (inherit) | Task: Map 9router OAuth implementation"
+    }
+  },
+  "updated_at": "2026-08-02T16:10:08.755Z"
+}

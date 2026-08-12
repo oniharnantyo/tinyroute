@@ -1,0 +1,30 @@
+version: "3"
+
+# tinyroute dev workflow.
+#   APP_PORT   = where the Go gateway listens (TINYROUTE_LISTEN default 8787).
+#                templ's dev server (7331) proxies to it; browse http://localhost:7331.
+#   CSS input  = Tailwind source (input.css); output styles.css is go:embedded
+#                by internal/dashboard/assets/assets.go and served at /dashboard/assets/styles.css.
+vars:
+  APP_PORT: "8787"
+  CSS_INPUT: "./internal/dashboard/assets/input.css"
+  CSS_OUTPUT: "./internal/dashboard/assets/styles.css"
+
+tasks:
+  templ:
+    desc: Run templ watcher + dev proxy with live reload (Go restarts on .templ change)
+    cmds:
+      - templ generate --watch --proxy="http://localhost:{{.APP_PORT}}" --cmd="go run . serve"
+
+  tailwind:
+    desc: Watch Tailwind v3 (input.css -> styles.css)
+    cmds:
+      # Pin v3: input.css + tailwind.config.js are v3-authored (@tailwind dirs,
+      # @apply with variants like selection:). v4 rejects @apply selection:... and
+      # ignores the JS config / .templ content paths. npx fetches v3 on demand.
+      - "npx -y tailwindcss@3.4.19 -i {{.CSS_INPUT}} -o {{.CSS_OUTPUT}} --watch"
+
+  dev:
+    desc: Start hot-reload dev server (templ + tailwind, in parallel)
+    cmds:
+      - task --parallel tailwind templ

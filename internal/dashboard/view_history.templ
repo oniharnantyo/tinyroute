@@ -1,0 +1,159 @@
+package dashboard
+
+import (
+	"fmt"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+)
+
+type HistoryAttemptItem struct {
+	Provider   string
+	Model      string
+	StatusCode int
+	LatencyMs  int64
+	ErrorMsg   string
+}
+
+type HistoryRowItem struct {
+	ID               string
+	Timestamp        string
+	Dialect          string
+	Model            string
+	KeyID            string
+	Outcome          string // "success", "error"
+	StatusCode       int
+	PromptTokens     int64
+	CompletionTokens int64
+	LatencyMs        int64
+	Attempts         []HistoryAttemptItem
+}
+
+type HistoryPageData struct {
+	Rows           []HistoryRowItem
+	FilterProvider string
+	FilterKey      string
+	FilterSession  string
+	FilterModel    string
+	NextCursor     string
+}
+
+templ HistoryPage(data HistoryPageData) {
+	<div class="space-y-6" x-data="{ selectedRow: null }">
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+			<div>
+				<h2 class="text-xl font-bold tracking-tight text-white">Request History</h2>
+				<p class="text-xs text-slate-400">Audit request logs, token spend, attempt chains, and status codes</p>
+			</div>
+		</div>
+
+		<!-- History Filters -->
+		<form method="GET" action="/dashboard/history" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+			<div class="relative flex-1">
+				<input type="text" name="provider" value={ data.FilterProvider } placeholder="Provider (e.g. openai)..." class="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
+				<div class="absolute left-3 top-2 text-slate-500">
+					@components.Icon("cpu", "w-3.5 h-3.5")
+				</div>
+			</div>
+			<div class="relative flex-1">
+				<input type="text" name="key" value={ data.FilterKey } placeholder="Filter by Key ID..." class="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
+				<div class="absolute left-3 top-2 text-slate-500">
+					@components.Icon("key", "w-3.5 h-3.5")
+				</div>
+			</div>
+			<div class="relative flex-1">
+				<input type="text" name="session" value={ data.FilterSession } placeholder="Session ID..." class="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
+				<div class="absolute left-3 top-2 text-slate-500">
+					@components.Icon("search", "w-3.5 h-3.5")
+				</div>
+			</div>
+			<button type="submit" class="py-1.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl transition-all flex items-center justify-center gap-1.5">
+				@components.Icon("filter", "w-3.5 h-3.5")
+				<span>Filter</span>
+			</button>
+		</form>
+
+		<!-- History Table -->
+		if len(data.Rows) == 0 {
+			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-12 text-center space-y-2">
+				<p class="text-xs text-slate-400">No request history found matching criteria.</p>
+			</div>
+		} else {
+			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+				<div class="overflow-x-auto">
+					<table class="w-full text-left border-collapse text-xs">
+						<thead>
+							<tr class="border-b border-slate-800 text-slate-400 font-medium">
+								<th class="py-3 px-3">Time</th>
+								<th class="py-3 px-3">Endpoint</th>
+								<th class="py-3 px-3">Model</th>
+								<th class="py-3 px-3">Key ID</th>
+								<th class="py-3 px-3">Status</th>
+								<th class="py-3 px-3">Latency</th>
+								<th class="py-3 px-3">Tokens (In/Out)</th>
+								<th class="py-3 px-3 text-right">Details</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-800/60 font-mono text-[11px]">
+							for _, row := range data.Rows {
+								<tr class="hover:bg-slate-800/30 transition-colors">
+									<td class="py-2.5 px-3 text-slate-400">{ row.Timestamp }</td>
+									<td class="py-2.5 px-3 text-slate-300 font-medium">{ row.Dialect }</td>
+									<td class="py-2.5 px-3 text-indigo-300 font-semibold">{ row.Model }</td>
+									<td class="py-2.5 px-3 text-slate-400">{ row.KeyID }</td>
+									<td class="py-2.5 px-3">
+										if row.Outcome == "success" {
+											<span class="px-2 py-0.5 rounded text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">200 OK</span>
+										} else {
+											<span class="px-2 py-0.5 rounded text-rose-400 bg-rose-500/10 border border-rose-500/20">500 Error</span>
+										}
+									</td>
+									<td class="py-2.5 px-3 text-slate-300">{ fmt.Sprintf("%d ms", row.LatencyMs) }</td>
+									<td class="py-2.5 px-3 text-slate-400">{ fmt.Sprintf("%d / %d", row.PromptTokens, row.CompletionTokens) }</td>
+									<td class="py-2.5 px-3 text-right">
+										<button @click={ fmt.Sprintf("selectedRow = %s", rowToJSON(row)) } class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-sans font-medium transition-all">
+											Inspect
+										</button>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+
+				if data.NextCursor != "" {
+					<div class="flex justify-end pt-2">
+						<a href={ templ.SafeURL(fmt.Sprintf("/dashboard/history?cursor=%s&key=%s&provider=%s", data.NextCursor, data.FilterKey, data.FilterProvider)) } class="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-all flex items-center gap-1">
+							<span>Next Page</span>
+							@components.Icon("arrow-right", "w-3.5 h-3.5")
+						</a>
+					</div>
+				}
+			</div>
+		}
+
+		<!-- Inspect Detail Drawer -->
+		<div x-show="selectedRow !== null" x-transition.opacity class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-end" style="display: none;">
+			<div @click.away="selectedRow = null" class="bg-slate-900 border-l border-slate-800 max-w-lg w-full p-6 shadow-2xl space-y-6 h-full overflow-y-auto">
+				<div class="flex items-center justify-between border-b border-slate-800 pb-3">
+					<h3 class="font-bold text-base text-white">Request Detail Drawer</h3>
+					<button @click="selectedRow = null" class="text-slate-400 hover:text-white">
+						@components.Icon("x-circle", "w-5 h-5")
+					</button>
+				</div>
+
+				<template x-if="selectedRow">
+					<div class="space-y-4 text-xs font-mono">
+						<div class="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1.5">
+							<div class="flex justify-between text-slate-400"><span class="font-sans font-medium text-slate-500">Request ID:</span> <span x-text="selectedRow.id"></span></div>
+							<div class="flex justify-between text-slate-400"><span class="font-sans font-medium text-slate-500">Timestamp:</span> <span x-text="selectedRow.timestamp"></span></div>
+							<div class="flex justify-between text-slate-400"><span class="font-sans font-medium text-slate-500">Model:</span> <span class="text-indigo-300 font-bold" x-text="selectedRow.model"></span></div>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+	</div>
+}
+
+func rowToJSON(row HistoryRowItem) string {
+	return fmt.Sprintf("{id:'%s',timestamp:'%s',model:'%s',attempts:[]}", row.ID, row.Timestamp, row.Model)
+}

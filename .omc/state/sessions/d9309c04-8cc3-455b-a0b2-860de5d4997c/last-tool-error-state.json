@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"echo '{\\\"providers\\\": {\\\"test\\\": {\\\"dialect\\\": \\\"invalid_dialect\\\"}}, \\\"routes\\\": []}' > ~/.tinyroute/config.json && ./tinyroute validate\",\"description\":\"Test validation with invalid diale...",
+  "error": "Exit code 1\nerror: provider \"test\": unknown dialect \"invalid_dialect\" (registered: openai)\n2026/08/01 12:14:15 1 validation error(s)",
+  "timestamp": "2026-08-01T05:14:16.211Z",
+  "retry_count": 1
+}

@@ -1,0 +1,15 @@
+@import "./tw-animate.css";
+@import "./shadcn-tailwind.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased selection:bg-indigo-500 selection:text-white bg-slate-950 text-slate-100;
+  }
+  * {
+    @apply border-slate-800;
+  }
+}

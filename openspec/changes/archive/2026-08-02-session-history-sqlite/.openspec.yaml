@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-02
+goal: Replace the JSONL session-history store with SQLite (modernc.org/sqlite)
+  to support indexed pagination and date/provider filtering, while keeping
+  request/response bodies in the content-addressed BlobStore.

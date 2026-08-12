@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"echo \\\"=== main specs ===\\\" && find openspec/specs -name 'spec.md' 2>/dev/null | sort; echo \\\"\\\"; echo \\\"=== active (non-archive) changes ===\\\" && find openspec/changes -maxdepth 1 -type d...",
+  "error": "Exit code 2\n=== main specs ===\nopenspec/specs/api-keys/spec.md\nopenspec/specs/core-routing/spec.md\nopenspec/specs/interactive-prompts/spec.md\nopenspec/specs/interactive-wizard/spec.md\nopenspec/specs/progress-indicators/spec.md\nopenspec/specs/provider-model-management/spec.md\n\n=== active (non-archive) changes ===\n\n=== current /v1/models requirement in main spec ===",
+  "timestamp": "2026-08-01T15:44:49.798Z",
+  "retry_count": 1
+}

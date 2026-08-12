@@ -1,0 +1,62 @@
+package dashboard
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+)
+
+type RouteItem struct {
+	From  string
+	Match string
+	Chain []string
+}
+
+type RoutesPageData struct {
+	Routes []RouteItem
+}
+
+templ RoutesPage(data RoutesPageData) {
+	<div class="space-y-6">
+		<div>
+			<h2 class="text-xl font-bold tracking-tight text-white">Routing Strategy</h2>
+			<p class="text-xs text-slate-400">Model fallback chains and outbound provider translation mapping</p>
+		</div>
+
+		if len(data.Routes) == 0 {
+			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-12 text-center space-y-2">
+				<p class="text-xs text-slate-400">No custom routes defined. Standard wildcard matching is in effect.</p>
+			</div>
+		} else {
+			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+				<div class="overflow-x-auto">
+					<table class="w-full text-left border-collapse text-xs">
+						<thead>
+							<tr class="border-b border-slate-800 text-slate-400 font-medium uppercase tracking-wider">
+								<th class="py-3 px-4">From Dialect</th>
+								<th class="py-3 px-4">Match Pattern</th>
+								<th class="py-3 px-4">Fallback Chain Hops</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-800/60 font-mono">
+							for _, r := range data.Routes {
+								<tr class="hover:bg-slate-800/30 transition-colors">
+									<td class="py-3.5 px-4 font-bold text-indigo-300">{ r.From }</td>
+									<td class="py-3.5 px-4 text-slate-200">{ r.Match }</td>
+									<td class="py-3.5 px-4">
+										<div class="flex items-center space-x-2 flex-wrap gap-y-1">
+											for i, hop := range r.Chain {
+												<span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[11px] font-medium">{ hop }</span>
+												if i < len(r.Chain)-1 {
+													@components.Icon("arrow-right", "w-3.5 h-3.5 text-slate-600 shrink-0")
+												}
+											}
+										</div>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		}
+	</div>
+}

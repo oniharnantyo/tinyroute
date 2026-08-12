@@ -1,0 +1,51 @@
+package dashboard
+
+import "github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+
+templ Login(errorMsg string) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full bg-slate-950">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Login - tinyroute Dashboard</title>
+			<link rel="stylesheet" href="/dashboard/assets/styles.css"/>
+		</head>
+		<body class="h-full flex items-center justify-center p-4 bg-gradient-to-tr from-slate-950 via-slate-900 to-indigo-950/40 text-slate-100 antialiased">
+			<div class="w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
+				<div class="text-center space-y-2">
+					<div class="inline-flex p-3 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/30 mb-2 shadow-inner">
+						@components.Icon("split", "w-8 h-8")
+					</div>
+					<h1 class="text-2xl font-bold tracking-tight text-white">tinyroute dashboard</h1>
+					<p class="text-xs text-slate-400">Enter your management password to continue</p>
+				</div>
+
+				if errorMsg != "" {
+					<div class="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2.5">
+						@components.Icon("x-circle", "w-4 h-4 text-rose-400 shrink-0")
+						<span>{ errorMsg }</span>
+					</div>
+				}
+
+				<form method="POST" action="/dashboard/login" class="space-y-4">
+					<div class="space-y-1.5">
+						<label for="password" class="block text-xs font-medium text-slate-300">Password</label>
+						<div class="relative">
+							<input type="password" id="password" name="password" required autofocus placeholder="••••••••" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"/>
+						</div>
+					</div>
+
+					<button type="submit" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+						<span>Sign In</span>
+						@components.Icon("arrow-right", "w-4 h-4")
+					</button>
+				</form>
+
+				<div class="text-center pt-2 border-t border-slate-800/60">
+					<p class="text-[11px] text-slate-500">Default password is <code class="px-1.5 py-0.5 bg-slate-950 rounded border border-slate-800 text-slate-400 font-mono">123456</code></p>
+				</div>
+			</div>
+		</body>
+	</html>
+}

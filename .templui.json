@@ -1,0 +1,7 @@
+{
+  "moduleName": "github.com/oniharnantyo/tinyroute",
+  "componentsDir": "internal/dashboard/components",
+  "utilsDir": "internal/dashboard/components/utils",
+  "jsDir": "internal/dashboard/assets",
+  "jsPublicPath": "/dashboard/assets"
+}

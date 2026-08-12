@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /Users/oniharnantyo/projects/tinyroute\\necho \\\"=== antigravity provider config ===\\\"\\npython3 -c \\\"\\nimport json\\nd = json.load(open('/Users/oniharnantyo/.tinyroute/config.json'))\\np = ...",
+  "error": "Exit code 1\n=== antigravity provider config ===\nTraceback (most recent call last):\n  File \"<string>\", line 7, in <module>\nTypeError: 'NoneType' object is not iterable\n{\n  \"dialect\": \"gemini\",\n  \"base_url\": \"https://generativelanguage.googleapis.com\",\n  \"models\": [\n    \"gemini-3.6-flash-high\",\n    \"gemini-3.6-flash-medium\"\n  ]\n}\n--- routes involving antigravity ---",
+  "timestamp": "2026-08-10T13:35:31.763Z",
+  "retry_count": 1
+}

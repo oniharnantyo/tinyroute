@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"rtk grep -rnE 'type OAuthRecord' internal/credential/ && echo \\\"===ListMasked body===\\\" && rtk grep -nA18 'func \\\\(s \\\\*Store\\\\) ListMasked' internal/credential/store.go\",\"description\":\"Fi...",
+  "error": "Exit code 1\ninternal/credential/store.go:16:type OAuthRecord struct {\n===ListMasked body===",
+  "timestamp": "2026-08-06T02:53:05.963Z",
+  "retry_count": 1
+}

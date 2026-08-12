@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "entries": {
+    "fb053c7dab33466a90ecc2fb51e263778e334c0d53dc388e45ee7b74c9db36a1": {
+      "last_emitted_at_ms": 1785763476074,
+      "message": "Spawning agent: general-purpose (inherit) | Task: Verify CLI auth flows + presets + docs"
+    },
+    "1164b63d2089030453c5fd59a02587ed663d6deaae80ae8f3e89dafce165c581": {
+      "last_emitted_at_ms": 1785763466600,
+      "message": "Spawning agent: general-purpose (inherit) | Task: Verify gemini dialect capability"
+    },
+    "7529c1b36cc7d12221eeeb03c19e516bf28def586ca07b3bda090f18c4c8595d": {
+      "last_emitted_at_ms": 1785763458018,
+      "message": "Spawning agent: general-purpose (inherit) | Task: Verify core-routing credential seam"
+    },
+    "07570fc187dd17429e2a89ec21949df8bf7a585a5e180a7b5763b1c870026762": {
+      "last_emitted_at_ms": 1785763448969,
+      "message": "Spawning agent: general-purpose (inherit) | Task: Verify provider-credentials capability"
+    },
+    "466399dafa2d20f60587180bad0a07358eb7f2bce724df0ff682f038ad33f5ad": {
+      "last_emitted_at_ms": 1785763399658,
+      "message": "Read multiple files in parallel when possible for faster analysis."
+    },
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1785763384307,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    }
+  },
+  "updated_at": "2026-08-03T13:24:36.074Z"
+}

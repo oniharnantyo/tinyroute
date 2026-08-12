@@ -1,0 +1,471 @@
+{
+  "presets": [
+    {"name": "anthropic", "dialect": "anthropic", "base_url": "https://api.anthropic.com", "credential_var": "ANTHROPIC_API_KEY"},
+    {"name": "openai", "dialect": "openai", "base_url": "https://api.openai.com/v1", "credential_var": "OPENAI_API_KEY"},
+    {
+      "name": "gemini",
+      "dialect": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "credential_var": "GEMINI_API_KEY",
+      "tier": "freemium",
+      "free_note": "15 RPM, 1M tokens/day on flash"
+    },
+    {
+      "name": "openrouter",
+      "dialect": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "credential_var": "OPENROUTER_API_KEY",
+      "tier": "freemium",
+      "free_note": "200 req/day, 27+ free models"
+    },
+    {
+      "name": "groq",
+      "dialect": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "credential_var": "GROQ_API_KEY",
+      "tier": "freemium",
+      "free_note": "fast inference, free tier"
+    },
+    {"name": "minimax", "dialect": "anthropic", "base_url": "https://api.minimaxi.chat/v1", "credential_var": "MINIMAX_API_KEY", "alt_dialect": "openai", "alt_base_url": "https://api.minimaxi.chat/v1"},
+    {"name": "zai", "dialect": "anthropic", "base_url": "https://api.z.ai/api/anthropic", "credential_var": "ZAI_API_KEY", "alt_dialect": "openai", "alt_base_url": "https://api.z.ai/api/openai/v1"},
+    {
+      "name": "kilo",
+      "dialect": "openai",
+      "base_url": "https://api.kilo.ai/api/gateway",
+      "credential_var": "KILO_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "nvidia",
+      "dialect": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "credential_var": "NVIDIA_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "cloudflare-ai",
+      "dialect": "openai",
+      "base_url": "https://api.cloudflare.com/client/v4",
+      "credential_var": "CLOUDFLARE_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "vertex",
+      "dialect": "gemini",
+      "base_url": "https://aiplatform.googleapis.com",
+      "credential_var": "VERTEX_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "bazaarlink",
+      "dialect": "openai",
+      "base_url": "https://api.bazaarlink.ai/v1",
+      "credential_var": "BAZAARLINK_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "byteplus",
+      "dialect": "openai",
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "credential_var": "BYTEPLUS_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "poolside",
+      "dialect": "openai",
+      "base_url": "https://api.poolside.ai/v1",
+      "credential_var": "POOLSIDE_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "ollama",
+      "dialect": "openai",
+      "base_url": "https://api.ollama.ai/v1",
+      "credential_var": "OLLAMA_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "api-airforce",
+      "dialect": "openai",
+      "base_url": "https://api.airforce/v1",
+      "credential_var": "API_AIRFORCE_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "nanobanana",
+      "dialect": "openai",
+      "base_url": "https://api.nanobanana.ai/v1",
+      "credential_var": "NANOBANANA_API_KEY",
+      "tier": "freemium"
+    },
+    {
+      "name": "claude",
+      "dialect": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "credential_var": "ANTHROPIC_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "client_id": "YOUR_CLAUDE_OAUTH_CLIENT_ID",
+      "authorize_endpoint": "https://claude.ai/oauth/authorize",
+      "token_endpoint": "https://api.anthropic.com/v1/oauth/token",
+      "scopes": ["org:create_api_key", "user:profile", "user:inference"],
+      "refresh_profile": {"body_format": "json"},
+      "risk_notice": "Revocation risk: Claude OAuth tokens from Claude Code are subject to Anthropic ToS.",
+      "tier": "freemium"
+    },
+    {
+      "name": "codex",
+      "dialect": "openai",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "credential_var": "OPENAI_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "client_id": "YOUR_CODEX_OAUTH_CLIENT_ID",
+      "authorize_endpoint": "https://auth.openai.com/oauth/authorize",
+      "token_endpoint": "https://auth.openai.com/oauth/token",
+      "callback_host": "localhost",
+      "callback_path": "/auth/callback",
+      "extra_params": {
+        "codex_cli_simplified_flow": "true",
+        "id_token_add_organizations": "true",
+        "originator": "codex_cli_rs"
+      },
+      "scopes": ["openid", "profile", "email", "offline_access"],
+      "refresh_profile": {"body_format": "json"},
+      "tier": "freemium"
+    },
+    {
+      "name": "github",
+      "dialect": "openai",
+      "base_url": "https://api.githubcopilot.com",
+      "credential_var": "GITHUB_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_GITHUB_OAUTH_CLIENT_ID",
+      "authorize_endpoint": "https://github.com/login/oauth/authorize",
+      "device_endpoint": "https://github.com/login/device/code",
+      "token_endpoint": "https://github.com/login/oauth/access_token",
+      "scopes": ["read:user"],
+      "risk_notice": "Revocation risk: GitHub Copilot OAuth tokens are subject to provider ToS and automated revocation checks.",
+      "tier": "freemium"
+    },
+    {
+      "name": "xai",
+      "dialect": "openai",
+      "base_url": "https://api.x.ai/v1",
+      "credential_var": "XAI_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_XAI_OAUTH_CLIENT_ID",
+      "device_endpoint": "https://auth.x.ai/oauth2/device",
+      "token_endpoint": "https://auth.x.ai/oauth2/token",
+      "scopes": ["openid", "profile", "email", "offline_access"],
+      "tier": "freemium"
+    },
+    {
+      "name": "qwen",
+      "dialect": "openai",
+      "base_url": "https://portal.qwen.ai/v1",
+      "credential_var": "QWEN_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_QWEN_OAUTH_CLIENT_ID",
+      "device_endpoint": "https://chat.qwen.ai/api/v1/oauth2/device/code",
+      "token_endpoint": "https://chat.qwen.ai/api/v1/oauth2/token",
+      "scopes": ["openid", "profile", "email", "model.completion"],
+      "tier": "freemium"
+    },
+    {
+      "name": "kimi",
+      "dialect": "openai",
+      "base_url": "https://api.moonshot.ai/v1",
+      "credential_var": "KIMI_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_KIMI_OAUTH_CLIENT_ID",
+      "device_endpoint": "https://auth.kimi.com/api/oauth/device_authorization",
+      "token_endpoint": "https://auth.kimi.com/api/oauth/token",
+      "device_header_profile": "kimi",
+      "tier": "freemium"
+    },
+    {
+      "name": "gitlab",
+      "dialect": "openai",
+      "base_url": "https://gitlab.com/api/v4",
+      "credential_var": "GITLAB_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "authorize_endpoint": "https://gitlab.com/oauth/authorize",
+      "token_endpoint": "https://gitlab.com/oauth/token",
+      "scopes": ["api", "read_user"],
+      "tier": "freemium"
+    },
+    {
+      "name": "gemini-cli",
+      "dialect": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "credential_var": "GEMINI_CLI_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_GEMINI_CLI_OAUTH_CLIENT_ID",
+      "client_secret": "YOUR_GEMINI_CLI_OAUTH_CLIENT_SECRET",
+      "device_endpoint": "https://oauth2.googleapis.com/device/code",
+      "authorize_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_endpoint": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile"
+      ],
+      "tier": "free"
+    },
+    {
+      "name": "antigravity",
+      "dialect": "gemini",
+      "base_url": "https://daily-cloudcode-pa.googleapis.com",
+      "transport": "cloudcode",
+      "credential_var": "ANTIGRAVITY_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "client_id": "YOUR_ANTIGRAVITY_OAUTH_CLIENT_ID",
+      "client_secret": "YOUR_ANTIGRAVITY_OAUTH_CLIENT_SECRET",
+      "extra_params": {
+        "access_type": "offline",
+        "prompt": "consent"
+      },
+      "authorize_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_endpoint": "https://oauth2.googleapis.com/token",
+      "device_endpoint": "https://oauth2.googleapis.com/device/code",
+      "scopes": [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/cclog",
+        "https://www.googleapis.com/auth/experimentsandconfigs"
+      ],
+      "models": [
+        "gemini-3.6-flash-high",
+        "gemini-3.6-flash-medium",
+        "gemini-3.6-flash-low",
+        "gemini-3-flash-agent",
+        "gemini-3.5-flash-low",
+        "gemini-3.5-flash-extra-low",
+        "gemini-pro-agent",
+        "gemini-3.1-pro-low",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-thinking",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "claude-opus-4-6-thinking",
+        "claude-sonnet-4-6",
+        "gpt-oss-120b-medium"
+      ],
+      "refresh_profile": {"include_client_secret": true},
+      "tier": "free"
+    },
+    {
+      "name": "grok-cli",
+      "dialect": "openai",
+      "base_url": "https://cli-chat-proxy.grok.com",
+      "credential_var": "GROK_CLI_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "client_id": "YOUR_GROK_CLI_OAUTH_CLIENT_ID",
+      "device_endpoint": "https://auth.x.ai/oauth2/device/code",
+      "token_endpoint": "https://auth.x.ai/oauth2/token",
+      "scopes": ["openid", "profile", "email", "offline_access", "grok-cli:access", "api:access", "conversations:read", "conversations:write"],
+      "tier": "freemium"
+    },
+    {
+      "name": "kilocode",
+      "dialect": "openai",
+      "base_url": "https://api.kilo.ai/api/openrouter",
+      "credential_var": "KILOCODE_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "device_endpoint": "https://api.kilo.ai/api/device-auth/codes",
+      "token_endpoint": "https://api.kilo.ai/api/device-auth/codes/{code}",
+      "tier": "freemium"
+    },
+    {
+      "name": "qoder",
+      "dialect": "openai",
+      "base_url": "https://api3.qoder.sh/algo/api/v2",
+      "credential_var": "QODER_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "qoder",
+      "device_endpoint": "https://openapi.qoder.sh/api/v1/deviceToken/poll",
+      "token_endpoint": "https://center.qoder.sh/algo/api/v3/user/refresh_token",
+      "tier": "freemium"
+    },
+    {
+      "name": "kimchi",
+      "dialect": "openai",
+      "base_url": "https://llm.kimchi.dev/openai/v1",
+      "credential_var": "KIMCHI_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "authorize_endpoint": "https://app.kimchi.dev",
+      "token_endpoint": "https://app.kimchi.dev/api/v1/me",
+      "tier": "freemium"
+    },
+    {
+      "name": "iflow",
+      "dialect": "openai",
+      "base_url": "https://apis.iflow.cn/v1",
+      "credential_var": "IFLOW_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "client_id": "YOUR_IFLOW_OAUTH_CLIENT_ID",
+      "authorize_endpoint": "https://iflow.cn/oauth",
+      "token_endpoint": "https://iflow.cn/oauth/token",
+      "extra_params": {
+        "loginMethod": "phone",
+        "type": "phone"
+      },
+      "refresh_profile": {"use_basic_auth": true, "include_client_secret": true},
+      "tier": "freemium"
+    },
+    {
+      "name": "codebuddy-cn",
+      "dialect": "openai",
+      "base_url": "https://copilot.tencent.com/v2",
+      "credential_var": "CODEBUDDY_CN_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "device_endpoint": "https://copilot.tencent.com/v2/plugin/auth/state",
+      "token_endpoint": "https://copilot.tencent.com/v2/plugin/auth/token",
+      "tier": "freemium"
+    },
+    {
+      "name": "codebuddy-intl",
+      "dialect": "openai",
+      "base_url": "https://www.codebuddy.ai/v2",
+      "credential_var": "CODEBUDDY_INTL_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "device_code",
+      "device_endpoint": "https://www.codebuddy.ai/v2/plugin/auth/state",
+      "token_endpoint": "https://www.codebuddy.ai/v2/plugin/auth/token",
+      "tier": "freemium"
+    },
+    {
+      "name": "trae",
+      "dialect": "openai",
+      "base_url": "https://core-normal.trae.ai/api/remote/v1",
+      "credential_var": "TRAE_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "trae",
+      "client_id": "YOUR_TRAE_OAUTH_CLIENT_ID",
+      "authorize_endpoint": "https://api.marscode.com/cloudide/api/v3/trae/GetLoginGuidance",
+      "token_endpoint": "https://api.marscode.com/cloudide/api/v3/trae/oauth/ExchangeToken",
+      "refresh_profile": {"body_format": "json"},
+      "tier": "freemium"
+    },
+    {
+      "name": "cline",
+      "dialect": "openai",
+      "base_url": "https://api.cline.bot/api/v1",
+      "credential_var": "CLINE_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "authorize_endpoint": "https://api.cline.bot/api/v1/auth/authorize",
+      "token_endpoint": "https://api.cline.bot/api/v1/auth/token",
+      "extra_params": {
+        "client_type": "extension"
+      },
+      "models": [
+        "zai/glm-5.2",
+        "x-ai/grok-4.5",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.4",
+        "openai/gpt-5.3-codex",
+        "moonshotai/kimi-k3",
+        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-opus-4.7",
+        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-opus-4.6",
+        "google/gemini-3.1-pro-preview",
+        "google/gemini-3.1-flash-lite-preview",
+        "openrouter/free",
+        "deepseek/deepseek-v4-flash",
+        "tencent/hy3:free",
+        "stepfun/step-3.7-flash",
+        "poolside/laguna-m.1:free",
+        "poolside/laguna-s-2.1:free",
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "minimax/minimax-m3",
+        "kwaipilot/kat-coder-pro"
+      ],
+      "refresh_profile": {"body_format": "json"},
+      "tier": "freemium"
+    },
+    {
+      "name": "clinepass",
+      "dialect": "openai",
+      "base_url": "https://api.cline.bot/api/v1",
+      "credential_var": "CLINEPASS_API_KEY",
+      "oauth_capable": true,
+      "flow_type": "pkce",
+      "authorize_endpoint": "https://api.cline.bot/api/v1/auth/authorize",
+      "token_endpoint": "https://api.cline.bot/api/v1/auth/token",
+      "extra_params": {
+        "client_type": "extension"
+      },
+      "models": [
+        "cline-pass/glm-5.2",
+        "cline-pass/minimax-m3",
+        "cline-pass/deepseek-v4-pro",
+        "cline-pass/deepseek-v4-flash",
+        "cline-pass/kimi-k3",
+        "cline-pass/kimi-k2.7-code",
+        "cline-pass/kimi-k2.6",
+        "cline-pass/mimo-v2.5-pro",
+        "cline-pass/mimo-v2.5",
+        "cline-pass/qwen3.7-max",
+        "cline-pass/qwen3.7-plus",
+        "cline-pass/qwen3.8-max"
+      ],
+      "refresh_profile": {"body_format": "json"},
+      "tier": "freemium"
+    },
+    {
+      "name": "zed",
+      "dialect": "openai",
+      "base_url": "https://cloud.zed.dev",
+      "credential_var": "ZED_TOKEN",
+      "oauth_capable": true,
+      "flow_type": "rsa_key_exchange",
+      "authorize_endpoint": "https://zed.dev/native_app_signin",
+      "tier": "freemium"
+    },
+    {
+      "name": "opencode-zen",
+      "dialect": "openai",
+      "base_url": "https://opencode.ai/zen/v1",
+      "credential_var": "OPENCODE_ZEN_API_KEY",
+      "tier": "free"
+    },
+    {
+      "name": "mimo-free",
+      "dialect": "openai",
+      "base_url": "https://api.mimo.ai/v1",
+      "credential_var": "MIMO_FREE_API_KEY",
+      "tier": "free"
+    },
+    {
+      "name": "ollama-local",
+      "dialect": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "credential_var": "OLLAMA_LOCAL_API_KEY",
+      "tier": "free"
+    },
+    {
+      "name": "openai-compatible",
+      "dialect": "openai",
+      "base_url": "http://localhost:8000/v1",
+      "credential_var": "OPENAI_COMPATIBLE_API_KEY"
+    }
+  ]
+}

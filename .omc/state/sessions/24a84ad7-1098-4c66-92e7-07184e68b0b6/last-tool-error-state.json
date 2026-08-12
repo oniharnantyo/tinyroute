@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"rtk read /Users/oniharnantyo/projects/tinyroute/internal/proxy/proxy.go 280 60\",\"description\":\"Read proxy translation logic around line 280-340\"}",
+  "error": "Exit code 1\n\u001b]697;DoneSourcing\u0007// Package proxy implements the attempt loop and SSE relay described in\n// design decision D14 — the only orchestrator in tinyroute. It imports\n// internal/core and the standard library only; every provider, dialect,\n// health, selection, and recording concern arrives through Deps as an\n// interface or function value.\npackage proxy\n\nimport (\n\t\"bufio\"\n\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"log\"\n\t\"log/slog\"\n\t\"net/http\"\n\t\"strings\"\n\t\"time\"\n\n\t\"github.com/on...",
+  "timestamp": "2026-08-03T14:57:08.024Z",
+  "retry_count": 1
+}

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/oniharnantyo/projects/tinyroute/openspec/specs/provider-registry/spec.md\"}",
+  "error": "File does not exist. Note: your current working directory is /Users/oniharnantyo/projects/tinyroute.",
+  "timestamp": "2026-08-02T15:56:46.706Z",
+  "retry_count": 1
+}
