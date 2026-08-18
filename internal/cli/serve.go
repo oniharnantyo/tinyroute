@@ -16,6 +16,7 @@ import (
 
 	"github.com/oniharnantyo/tinyroute/internal/accesslog"
 	"github.com/oniharnantyo/tinyroute/internal/auth"
+	_ "github.com/oniharnantyo/tinyroute/internal/clients"
 	"github.com/oniharnantyo/tinyroute/internal/config"
 	"github.com/oniharnantyo/tinyroute/internal/core"
 	"github.com/oniharnantyo/tinyroute/internal/credential"
@@ -408,7 +409,7 @@ func requestHandler(
 		}
 
 		ks := keyWatcher.Get()
-		keyID, err := ks.Verify(token, d.Name(), parsed.Model)
+		keyID, err := ks.Verify(token)
 		if err != nil {
 			if logger != nil {
 				logger.Debug("authentication failed", slog.String("request_id", reqID), slog.String("model", parsed.Model), slog.Any("error", err))

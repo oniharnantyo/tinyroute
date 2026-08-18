@@ -52,6 +52,63 @@ func TestRouter_DirectPrefixResolution(t *testing.T) {
 	}
 }
 
+func TestRouter_ContextWindowSuffixStripped(t *testing.T) {
+	providers := map[string]config.Provider{
+		"anthropic": {
+			Dialect: "anthropic",
+			BaseURL: "https://api.anthropic.com",
+			Models:  []string{"claude-sonnet-4-5"},
+		},
+	}
+
+	r := New(nil, providers)
+
+	// Suffix variant resolves to the base whitelisted model
+	res, err := r.Resolve("anthropic", "anthropic:claude-sonnet-4-5[1m]")
+	if err != nil {
+		t.Fatalf("unexpected error resolving anthropic:claude-sonnet-4-5[1m]: %v", err)
+	}
+	if len(res.Hops) != 1 || res.Hops[0].Model != "claude-sonnet-4-5" {
+		t.Errorf("expected [1m] suffix to be stripped before upstream routing, got: %+v", res)
+	}
+
+	// Provider with empty whitelist also strips the suffix
+	open := map[string]config.Provider{
+		"any": {Dialect: "anthropic", BaseURL: "https://example.com"},
+	}
+	rOpen := New(nil, open)
+	res, err = rOpen.Resolve("anthropic", "any:claude-sonnet-4-5[1m]")
+	if err != nil {
+		t.Fatalf("unexpected error resolving suffix model on open whitelist: %v", err)
+	}
+	if res.Hops[0].Model != "claude-sonnet-4-5" {
+		t.Errorf("expected suffix stripped on open whitelist, got: %+v", res)
+	}
+
+	// A literal whitelisted name containing the suffix is preserved verbatim
+	literal := map[string]config.Provider{
+		"anthropic": {
+			Dialect: "anthropic",
+			BaseURL: "https://api.anthropic.com",
+			Models:  []string{"claude-sonnet-4-5[1m]"},
+		},
+	}
+	rLit := New(nil, literal)
+	res, err = rLit.Resolve("anthropic", "anthropic:claude-sonnet-4-5[1m]")
+	if err != nil {
+		t.Fatalf("unexpected error resolving literal suffixed whitelist entry: %v", err)
+	}
+	if res.Hops[0].Model != "claude-sonnet-4-5[1m]" {
+		t.Errorf("expected literal whitelisted name preserved, got: %+v", res)
+	}
+
+	// Base model still resolves normally
+	_, err = r.Resolve("anthropic", "anthropic:claude-sonnet-4-5")
+	if err != nil {
+		t.Fatalf("unexpected error resolving base model: %v", err)
+	}
+}
+
 func TestRouter_UnprefixedResolution(t *testing.T) {
 	raw := []RawRoute{
 		{

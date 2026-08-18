@@ -1,0 +1,315 @@
+package dashboard
+
+import (
+	"fmt"
+	"github.com/oniharnantyo/tinyroute/internal/core"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/badge"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/breadcrumb"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/collapsible"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+)
+
+type HistoryDetailPageData struct {
+	ID                    string
+	Timestamp             string
+	TimestampUTC          string
+	Provider              string
+	ModelReq              string
+	ModelServed           string
+	KeyID                 string
+	Session               string
+	Endpoint              string
+	Stream                bool
+	Outcome               string
+	StatusCode            int
+	StatusVariant         components.StatusBadgeVariant
+	InputTokens           int64
+	OutputTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	TotalTokens           int64
+	LatencyMs             int64
+	Attempts              []core.Attempt
+	RequestBody           FormattedBody
+	TranslatedRequestBody FormattedBody
+	RawResponseBody       FormattedBody
+	ResponseBody          FormattedBody
+}
+
+templ HistoryDetailNotFoundPage(id string) {
+	<div class="space-y-6">
+		<div class="border-b border-border pb-4">
+			@breadcrumb.Breadcrumb() {
+				@breadcrumb.List() {
+					@breadcrumb.Item() {
+						@breadcrumb.Link(breadcrumb.LinkProps{Href: "/dashboard/history"}) {
+							History
+						}
+					}
+					@breadcrumb.Separator()
+					@breadcrumb.Item() {
+						@breadcrumb.Page() {
+							Not Found
+						}
+					}
+				}
+			}
+		</div>
+
+		@empty.Empty() {
+			@empty.Header() {
+				@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+					@icon.History()
+				}
+				@empty.Title() { Request not found }
+				@empty.Description() { fmt.Sprintf("No request record found with ID %q.", id) }
+			}
+			@empty.Content() {
+				@button.Button(button.Props{
+					Href:    "/dashboard/history",
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Class:   "gap-1.5",
+				}) {
+					@icon.ArrowLeft(icon.Props{Class: "size-3.5"})
+					<span>Back to Request History</span>
+				}
+			}
+		}
+	</div>
+}
+
+templ BodyPane(title string, description string, body FormattedBody) {
+	@collapsible.Collapsible(collapsible.Props{Class: "group rounded-lg border border-border bg-card shadow-xs transition-colors"}) {
+		<button
+			type="button"
+			{ collapsible.Trigger(ctx)... }
+			class="w-full flex items-center justify-between p-4 cursor-pointer select-none font-medium text-sm text-foreground hover:bg-muted/30 rounded-lg text-left"
+		>
+			<div class="flex items-center gap-2.5">
+				<span class="font-semibold">{ title }</span>
+				<span class="text-xs text-muted-foreground font-normal">({ description })</span>
+				if body.ByteCount > 0 {
+					@badge.Badge(badge.Props{
+						Variant: badge.VariantSecondary,
+						Class:   "font-mono text-xs text-muted-foreground",
+					}) {
+						{ formatBytes(int64(body.ByteCount)) }
+					}
+				} else {
+					@badge.Badge(badge.Props{
+						Variant: badge.VariantSecondary,
+						Class:   "font-mono text-xs text-muted-foreground/60 bg-muted/50",
+					}) {
+						empty
+					}
+				}
+			</div>
+			<div class="flex items-center gap-2 text-muted-foreground text-xs">
+				<span class="group-data-[open]:hidden">Expand</span>
+				<span class="hidden group-data-[open]:inline">Collapse</span>
+				@icon.ChevronDown(icon.Props{Class: "size-4 transition-transform group-data-[open]:rotate-180"})
+			</div>
+		</button>
+		@collapsible.Content(collapsible.ContentProps{Class: "p-4 pt-0 border-t border-border/50 space-y-3"}) {
+			if body.ByteCount == 0 {
+				<div class="py-6 text-center text-xs text-muted-foreground italic">
+					No body content recorded for this stage
+				</div>
+			} else {
+				if body.IsTruncated {
+					<div class="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
+						@icon.CircleAlert(icon.Props{Class: "size-4 shrink-0"})
+						<span>Showing first 512 KB of { body.TotalSize } total</span>
+					</div>
+				}
+				<pre class="p-3.5 bg-muted/40 border border-border rounded-md text-xs font-mono text-foreground overflow-x-auto max-h-[500px] leading-relaxed whitespace-pre-wrap break-all select-all"><code>{ body.Content }</code></pre>
+			}
+		}
+	}
+}
+
+templ HistoryDetailPage(data HistoryDetailPageData) {
+	<div class="space-y-6">
+		<!-- Header Breadcrumb & Actions -->
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+			<div class="space-y-1">
+				@breadcrumb.Breadcrumb() {
+					@breadcrumb.List() {
+						@breadcrumb.Item() {
+							@breadcrumb.Link(breadcrumb.LinkProps{Href: "/dashboard/history"}) {
+								History
+							}
+						}
+						@breadcrumb.Separator()
+						@breadcrumb.Item() {
+							@breadcrumb.Page() {
+								<span class="font-mono text-xs">{ data.ID }</span>
+							}
+						}
+					}
+				}
+				<h2 class="text-xl font-bold tracking-tight text-foreground font-mono">{ data.ID }</h2>
+			</div>
+			<div class="flex items-center gap-2">
+				@button.Button(button.Props{
+					Href:    "/dashboard/history",
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Class:   "gap-1.5",
+				}) {
+					@icon.ArrowLeft(icon.Props{Class: "size-3.5"})
+					<span>Back to History</span>
+				}
+			</div>
+		</div>
+
+		<!-- Summary KPI Cards -->
+		<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</p>
+				<div class="pt-0.5">
+					@components.StatusBadge(components.StatusBadgeProps{Variant: data.StatusVariant}) {
+						{ fmt.Sprintf("%d", data.StatusCode) }
+					}
+				</div>
+			}
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Latency</p>
+				<p class="text-sm font-semibold font-mono text-foreground">{ fmt.Sprintf("%d ms", data.LatencyMs) }</p>
+			}
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Provider</p>
+				<p class="text-sm font-semibold font-mono text-foreground truncate">
+					if data.Provider != "" {
+						{ data.Provider }
+					} else {
+						<span class="text-muted-foreground font-normal italic">None</span>
+					}
+				</p>
+			}
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Model</p>
+				<p class="text-sm font-semibold font-mono text-foreground truncate" title={ data.ModelReq }>{ data.ModelReq }</p>
+			}
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Tokens</p>
+				<p class="text-sm font-semibold font-mono text-foreground">{ fmt.Sprintf("%d", data.TotalTokens) }</p>
+			}
+			@card.Card(card.Props{Class: "p-3.5 space-y-1"}) {
+				<p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Stream</p>
+				<p class="text-sm font-semibold text-foreground">
+					if data.Stream {
+						<span class="text-emerald-500 font-mono">Stream (SSE)</span>
+					} else {
+						<span class="text-muted-foreground font-mono">Unary</span>
+					}
+				</p>
+			}
+		</div>
+
+		<!-- Metadata Details Card -->
+		@card.Card(card.Props{Class: "p-4"}) {
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs font-mono">
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Timestamp (Local):</span>
+					<p class="text-foreground">{ data.Timestamp }</p>
+				</div>
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Timestamp (UTC):</span>
+					<p class="text-foreground">{ data.TimestampUTC }</p>
+				</div>
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Endpoint:</span>
+					<p class="text-foreground">{ data.Endpoint }</p>
+				</div>
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Key ID:</span>
+					<p class="text-foreground">
+						if data.KeyID != "" {
+							{ data.KeyID }
+						} else {
+							<span class="text-muted-foreground italic">None</span>
+						}
+					</p>
+				</div>
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Session ID:</span>
+					<p class="text-foreground">
+						if data.Session != "" {
+							{ data.Session }
+						} else {
+							<span class="text-muted-foreground italic">None</span>
+						}
+					</p>
+				</div>
+				<div class="space-y-1">
+					<span class="text-muted-foreground font-sans font-medium">Model Served:</span>
+					<p class="text-foreground">
+						if data.ModelServed != "" {
+							{ data.ModelServed }
+						} else {
+							{ data.ModelReq }
+						}
+					</p>
+				</div>
+				<div class="space-y-1 sm:col-span-2 lg:col-span-3 pt-2 border-t border-border">
+					<span class="text-muted-foreground font-sans font-medium">Token Breakdown:</span>
+					<div class="flex flex-wrap gap-4 pt-1 text-foreground">
+						<span>Prompt: <strong>{ fmt.Sprintf("%d", data.InputTokens) }</strong></span>
+						<span>Completion: <strong>{ fmt.Sprintf("%d", data.OutputTokens) }</strong></span>
+						<span>Cache Read: <strong>{ fmt.Sprintf("%d", data.CacheReadTokens) }</strong></span>
+						<span>Cache Creation: <strong>{ fmt.Sprintf("%d", data.CacheCreationTokens) }</strong></span>
+					</div>
+				</div>
+			</div>
+		}
+
+		<!-- Attempt Chain -->
+		if len(data.Attempts) > 0 {
+			@card.Card(card.Props{Class: "p-4 space-y-3"}) {
+				<div class="flex items-center justify-between">
+					<h3 class="text-sm font-bold text-foreground">Attempt Chain</h3>
+					<span class="text-xs text-muted-foreground">{ fmt.Sprintf("%d hop(s)", len(data.Attempts)) }</span>
+				</div>
+				<div class="space-y-2 font-mono text-xs">
+					for idx, att := range data.Attempts {
+						<div class="p-3 bg-muted/30 border border-border rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+							<div class="flex items-center gap-3">
+								<span class="flex items-center justify-center size-5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold font-sans">
+									{ fmt.Sprintf("%d", idx+1) }
+								</span>
+								<div>
+									<span class="font-semibold text-foreground">{ att.Provider }</span>
+									<span class="text-muted-foreground mx-1.5">/</span>
+									<span class="text-foreground/80">{ att.Model }</span>
+								</div>
+							</div>
+							<div class="flex items-center gap-3 self-end sm:self-auto">
+								<span class="text-muted-foreground">{ fmt.Sprintf("%d ms", att.Elapsed.Milliseconds()) }</span>
+								@components.StatusBadge(components.StatusBadgeProps{Variant: historyStatusBadgeVariant(att.Status)}) {
+									{ fmt.Sprintf("%d", att.Status) }
+								}
+							</div>
+						</div>
+					}
+				</div>
+			}
+		}
+
+		<!-- Four Captured Bodies -->
+		<div class="space-y-3">
+			<h3 class="text-sm font-bold text-foreground">Captured Request & Response Bodies</h3>
+			<div class="space-y-3">
+				@BodyPane("Client Request", "Original request received from client", data.RequestBody)
+				@BodyPane("Provider Request", "Translated request sent upstream to provider", data.TranslatedRequestBody)
+				@BodyPane("Provider Response", "Raw response received from upstream provider", data.RawResponseBody)
+				@BodyPane("Final Response", "Response sent back to client", data.ResponseBody)
+			</div>
+		</div>
+	</div>
+}

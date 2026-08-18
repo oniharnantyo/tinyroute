@@ -93,7 +93,7 @@ type HealthStore interface {
 **KeyVerifier Interface**
 ```go
 type KeyVerifier interface {
-    Verify(token string, surface string, model string) (keyID string, err error)
+    Verify(token string) (keyID string, err error)
 }
 ```
 - **Purpose**: Authenticates inbound requests using internal API keys

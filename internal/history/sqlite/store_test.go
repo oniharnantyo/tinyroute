@@ -99,8 +99,20 @@ CREATE TABLE requests (
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	if rows[0].ID != "legacy-req-1" || rows[0].RequestBody != `{"messages":[]}` {
+	if rows[0].ID != "legacy-req-1" || rows[0].RequestBody != "" {
 		t.Errorf("unexpected row data after migration: %+v", rows[0])
+	}
+
+	// Verify Get returns full bodies after migration
+	recGet, found, err := store.Get(context.Background(), "legacy-req-1")
+	if err != nil {
+		t.Fatalf("Get error after migration: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected legacy-req-1 to be found")
+	}
+	if recGet.RequestBody != `{"messages":[]}` || recGet.ResponseBody != `{"id":"msg-1"}` {
+		t.Errorf("unexpected body after migration: req=%q, resp=%q", recGet.RequestBody, recGet.ResponseBody)
 	}
 }
 
@@ -205,7 +217,7 @@ func TestRecord_And_Query(t *testing.T) {
 		t.Errorf("unexpected order: %s, %s, %s", rows[0].ID, rows[1].ID, rows[2].ID)
 	}
 
-	// Verify rec1 detailed fields
+	// Verify rec1 detailed fields from List (bodies should be empty)
 	r1 := rows[2]
 	if r1.Provider != "anthropic" || r1.InputTokens != 100 || r1.OutputTokens != 50 || r1.CacheReadTokens != 20 || r1.CacheCreationTokens != 10 {
 		t.Errorf("rec1 usage fields mismatch: %+v", r1)
@@ -213,17 +225,119 @@ func TestRecord_And_Query(t *testing.T) {
 	if r1.Latency != 250*time.Millisecond {
 		t.Errorf("rec1 latency mismatch: %v", r1.Latency)
 	}
-	if r1.RequestBody != `{"model":"claude-3-5-sonnet","messages":[]}` || r1.ResponseBody != `{"id":"msg-1","type":"message"}` {
-		t.Errorf("rec1 request_body/response_body mismatch: req=%q, resp=%q", r1.RequestBody, r1.ResponseBody)
+	if r1.RequestBody != "" || r1.ResponseBody != "" || r1.TranslatedRequestBody != "" || r1.RawResponseBody != "" {
+		t.Errorf("rec1 in List should not have body fields: %+v", r1)
 	}
-	if r1.TranslatedRequestBody != `{"model":"claude-3-5-sonnet","messages":[],"translated":true}` || r1.RawResponseBody != `{"id":"msg-1","type":"message","raw":true}` {
-		t.Errorf("rec1 translated_request_body/raw_response_body mismatch: xlated=%q, raw_resp=%q", r1.TranslatedRequestBody, r1.RawResponseBody)
+
+	// Verify Get returns full body fields
+	g1, found, err := store.Get(ctx, "req-1")
+	if err != nil {
+		t.Fatalf("Get req-1 error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected req-1 to be found")
+	}
+	if g1.RequestBody != `{"model":"claude-3-5-sonnet","messages":[]}` || g1.ResponseBody != `{"id":"msg-1","type":"message"}` {
+		t.Errorf("g1 request_body/response_body mismatch: req=%q, resp=%q", g1.RequestBody, g1.ResponseBody)
+	}
+	if g1.TranslatedRequestBody != `{"model":"claude-3-5-sonnet","messages":[],"translated":true}` || g1.RawResponseBody != `{"id":"msg-1","type":"message","raw":true}` {
+		t.Errorf("g1 translated_request_body/raw_response_body mismatch: xlated=%q, raw_resp=%q", g1.TranslatedRequestBody, g1.RawResponseBody)
 	}
 
 	// Verify failed record nil usage behavior (defaults to 0)
 	r3 := rows[0]
 	if r3.Provider != "" || r3.InputTokens != 0 || r3.OutputTokens != 0 || r3.CacheReadTokens != 0 || r3.CacheCreationTokens != 0 {
 		t.Errorf("recFailed usage fields mismatch: %+v", r3)
+	}
+}
+
+func TestGet_ExistingAndUnknown(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("Open error: %v", err)
+	}
+	defer db.Close()
+
+	store := sqlite.NewStore(db)
+	ctx := context.Background()
+
+	// Unknown ID returns (zero, false, nil)
+	summary, found, err := store.Get(ctx, "nonexistent-id")
+	if err != nil {
+		t.Fatalf("unexpected error for nonexistent ID: %v", err)
+	}
+	if found {
+		t.Errorf("expected found=false for nonexistent ID, got found=true")
+	}
+	if summary.ID != "" {
+		t.Errorf("expected zero summary for nonexistent ID, got %+v", summary)
+	}
+
+	// Existing record
+	now := time.Now().Truncate(time.Millisecond).UTC()
+	store.Record(ctx, core.RequestRecord{
+		ID:                    "req-detail-1",
+		Timestamp:             now,
+		Provider:              "openai",
+		ModelReq:              "gpt-4o",
+		Outcome:               core.OutcomeOK,
+		RequestBody:           `{"prompt":"hello"}`,
+		ResponseBody:          `{"choice":"world"}`,
+		TranslatedRequestBody: `{"model":"gpt-4o","prompt":"hello"}`,
+		RawResponseBody:       `{"raw":"data"}`,
+		Attempts: []core.Attempt{
+			{Provider: "openai", Model: "gpt-4o", Status: 200, Elapsed: 120 * time.Millisecond},
+		},
+	})
+
+	got, found, err := store.Get(ctx, "req-detail-1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected req-detail-1 to be found")
+	}
+	if got.ID != "req-detail-1" || got.Provider != "openai" || got.RequestBody != `{"prompt":"hello"}` {
+		t.Errorf("mismatched summary: %+v", got)
+	}
+	if got.Attempts == "" {
+		t.Errorf("expected non-empty attempts string")
+	}
+}
+
+func TestList_LimitClamp(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("Open error: %v", err)
+	}
+	defer db.Close()
+
+	store := sqlite.NewStore(db)
+	ctx := context.Background()
+
+	// Insert 505 records to meaningfully verify the 500 limit clamp
+	now := time.Now()
+	for i := 1; i <= 505; i++ {
+		store.Record(ctx, core.RequestRecord{
+			ID:        fmt.Sprintf("req-clamp-%04d", i),
+			Timestamp: now.Add(time.Duration(i) * time.Minute),
+			ModelReq:  "gpt-4o",
+			Outcome:   core.OutcomeOK,
+		})
+	}
+
+	// Query with Limit = 1000 (exceeding MaxListLimit of 500)
+	rows, nextCursor, err := store.List(ctx, history.Filter{Limit: 1000})
+	if err != nil {
+		t.Fatalf("List error with large limit: %v", err)
+	}
+	if len(rows) != history.MaxListLimit {
+		t.Errorf("expected %d rows clamped, got %d", history.MaxListLimit, len(rows))
+	}
+	if nextCursor == "" {
+		t.Errorf("expected nextCursor to be non-empty when records exceed limit")
 	}
 }
 

@@ -1,0 +1,133 @@
+// templui component popover - version: v1.13.0 installed by templui v1.13.0
+// 📚 Documentation: https://templui.io/docs/components/popover
+package popover
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+	"strconv"
+)
+
+type Placement string
+
+const (
+	PlacementTop         Placement = "top"
+	PlacementTopStart    Placement = "top-start"
+	PlacementTopEnd      Placement = "top-end"
+	PlacementRight       Placement = "right"
+	PlacementRightStart  Placement = "right-start"
+	PlacementRightEnd    Placement = "right-end"
+	PlacementBottom      Placement = "bottom"
+	PlacementBottomStart Placement = "bottom-start"
+	PlacementBottomEnd   Placement = "bottom-end"
+	PlacementLeft        Placement = "left"
+	PlacementLeftStart   Placement = "left-start"
+	PlacementLeftEnd     Placement = "left-end"
+)
+
+type TriggerType string
+
+const (
+	TriggerTypeClick TriggerType = "click"
+	TriggerTypeHover TriggerType = "hover"
+)
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type RootProps = Props
+
+type TriggerProps struct {
+	Class       string
+	Attributes  templ.Attributes
+	TriggerType TriggerType
+}
+
+type ContentProps struct {
+	ID            string
+	Class         string
+	Attributes    templ.Attributes
+	Placement     Placement
+	Offset        int
+	HoverDelay    int
+	HoverOutDelay int
+	DisableESC    bool
+	Exclusive     bool
+}
+
+templ Root(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		class={ utils.TwMerge("relative inline-block", p.Class) }
+		data-tui-popover-root
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Trigger(props ...TriggerProps) {
+	{{ var p TriggerProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.TriggerType == "" {
+		{{ p.TriggerType = TriggerTypeClick }}
+	}
+	<div
+		class={ utils.TwMerge("inline-block", p.Class) }
+		data-tui-popover-trigger
+		data-tui-popover-trigger-type={ string(p.TriggerType) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Content(props ...ContentProps) {
+	{{ var p ContentProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.Placement == "" {
+		{{ p.Placement = PlacementBottom }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		class={
+			utils.TwMerge(
+				"z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-none hidden",
+				"data-[tui-popover-state=open]:animate-in data-[tui-popover-state=closed]:animate-out data-[tui-popover-state=closed]:fade-out-0 data-[tui-popover-state=open]:fade-in-0 data-[tui-popover-state=closed]:zoom-out-95 data-[tui-popover-state=open]:zoom-in-95",
+				p.Class,
+			),
+		}
+		data-tui-popover-content
+		data-tui-popover-placement={ string(p.Placement) }
+		if p.Offset != 0 {
+			data-tui-popover-offset={ strconv.Itoa(p.Offset) }
+		}
+		if p.DisableESC {
+			data-tui-popover-disable-esc
+		}
+		if p.Exclusive {
+			data-tui-popover-exclusive
+		}
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+func Script() templ.Component {
+	return utils.ComponentScript("popover")
+}

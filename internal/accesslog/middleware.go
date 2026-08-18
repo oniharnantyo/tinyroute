@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,10 @@ func Middleware(logger *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			next.ServeHTTP(rw, r.WithContext(ctx))
 			elapsed := time.Since(start)
+
+			if strings.HasPrefix(r.URL.Path, "/dashboard/assets") || strings.HasPrefix(r.URL.Path, "/assets") || r.URL.Path == "/favicon.ico" {
+				return
+			}
 
 			logger.Info("access",
 				slog.String("method", r.Method),

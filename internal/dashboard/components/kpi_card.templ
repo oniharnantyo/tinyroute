@@ -1,0 +1,53 @@
+package components
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+)
+
+type KPICardProps struct {
+	ID          string
+	Title       string
+	Value       string
+	Description string
+	Icon        IconFunc
+	Class       string
+	Attributes  templ.Attributes
+}
+
+templ KPICard(props ...KPICardProps) {
+	{{ var p KPICardProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	@card.Card(card.Props{
+		ID:         p.ID,
+		Attributes: p.Attributes,
+		Class:      utils.TwMerge("relative overflow-hidden", p.Class),
+	}) {
+		@card.Header(card.HeaderProps{
+			Class: "flex flex-row items-center justify-between space-y-0 pb-2",
+		}) {
+			@card.Title(card.TitleProps{
+				Class: "text-xs font-medium uppercase tracking-wider text-muted-foreground",
+			}) {
+				{ p.Title }
+			}
+			if p.Icon != nil {
+				<div class="text-muted-foreground">
+					@p.Icon(icon.Props{Class: "size-4"})
+				</div>
+			}
+		}
+		@card.Content(card.ContentProps{
+			Class: "pt-0",
+		}) {
+			<div class="text-2xl font-bold tracking-tight text-foreground">{ p.Value }</div>
+			if p.Description != "" {
+				<p class="text-xs text-muted-foreground mt-1">{ p.Description }</p>
+			}
+			{ children... }
+		}
+	}
+}

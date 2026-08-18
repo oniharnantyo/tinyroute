@@ -1,8 +1,0 @@
-{
-  "runner": {
-    "pid": 62541,
-    "processStartIdentity": "watchdog-parent"
-  },
-  "expiredAt": "2026-08-08T15:53:20.054Z",
-  "state": "deadline-expired"
-}

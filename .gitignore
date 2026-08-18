@@ -118,6 +118,17 @@ go.work.sum
 # env file
 .env
 
+### OMC and Assistant Local Data
+.omc/
+**/.omc/
+.agents/
+.claude/
+.gemini/
+.kiro/
+
+# Reference repositories
+refs/
+
 ### macOS template
 # General
 .DS_Store

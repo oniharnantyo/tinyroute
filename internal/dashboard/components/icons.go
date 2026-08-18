@@ -5,10 +5,7 @@ import (
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
 )
 
-// Icon wraps templui icon component (Lucide icons).
-func Icon(name string, class string) templ.Component {
-	if class == "" {
-		class = "w-5 h-5"
-	}
-	return icon.Icon(name)(icon.Props{Class: class})
-}
+// IconFunc renders an icon with the given props. Every icon in the
+// shadcn-templ icon package (e.g. icon.Cpu, icon.Search) has this type,
+// so wrapper props can accept any of them by name.
+type IconFunc = func(...icon.Props) templ.Component

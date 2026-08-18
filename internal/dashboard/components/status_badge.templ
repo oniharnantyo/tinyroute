@@ -1,0 +1,56 @@
+package components
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/badge"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+)
+
+type StatusBadgeVariant string
+
+const (
+	StatusSuccess StatusBadgeVariant = "success"
+	StatusWarning StatusBadgeVariant = "warning"
+	StatusError   StatusBadgeVariant = "error"
+	StatusInfo    StatusBadgeVariant = "info"
+	StatusNeutral StatusBadgeVariant = "neutral"
+)
+
+type StatusBadgeProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Variant    StatusBadgeVariant
+}
+
+templ StatusBadge(props ...StatusBadgeProps) {
+	{{ var p StatusBadgeProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	@badge.Badge(badge.Props{
+		ID:         p.ID,
+		Variant:    badge.VariantOutline,
+		Attributes: p.Attributes,
+		Class: utils.TwMerge(
+			statusVariantClasses(p.Variant),
+			p.Class,
+		),
+	}) {
+		{ children... }
+	}
+}
+
+func statusVariantClasses(v StatusBadgeVariant) string {
+	switch v {
+	case StatusSuccess:
+		return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+	case StatusWarning:
+		return "border-amber-500/30 bg-amber-500/10 text-amber-400"
+	case StatusError:
+		return "border-rose-500/30 bg-rose-500/10 text-rose-400"
+	case StatusInfo:
+		return "border-sky-500/30 bg-sky-500/10 text-sky-400"
+	default: // StatusNeutral
+		return "border-border bg-muted/50 text-muted-foreground"
+	}
+}

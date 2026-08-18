@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"go build ./... 2>&1 && echo \\\"MODULE BUILD OK\\\" && echo \\\"--- changed files ---\\\" && rtk git status --short 2>/dev/null | rtk grep -E \\\"serve.go|topology.go\\\" \",\"description\":\"Build entire...",
-  "error": "Exit code 1\nMODULE BUILD OK\n--- changed files ---",
-  "timestamp": "2026-08-11T02:00:45.204Z",
-  "retry_count": 1
-}

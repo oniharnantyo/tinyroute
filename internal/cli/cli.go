@@ -25,7 +25,7 @@ func New() *cli.Command {
 			cmdKeys(),
 			cmdProviders(),
 			cmdCombos(),
-			cmdAgent(),
+			cmdClient(),
 			cmdHistory(),
 		},
 	}

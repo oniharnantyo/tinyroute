@@ -1,0 +1,665 @@
+package dashboard
+
+import (
+
+	"fmt"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dialog"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/inputgroup"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/radio"
+	selectcomp "github.com/oniharnantyo/tinyroute/internal/dashboard/components/select"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/sheet"
+	"strings"
+)
+
+templ viewClientDetail(data ClientDetailPageData) {
+	<div class="max-w-3xl mx-auto space-y-6">
+		<!-- Header Breadcrumb & Status -->
+		<div class="flex items-center justify-between gap-4 pb-4 border-b border-border">
+			<div class="flex items-center gap-3">
+				<a href="/dashboard/clients" class="p-2 rounded-lg bg-card border border-border text-muted-foreground hover:text-foreground transition-colors">
+					@icon.ArrowLeft(icon.Props{Class: "size-4"})
+				</a>
+				@clientLogo(data.ClientID, data.ClientName)
+				<div>
+					<div class="flex items-center gap-3">
+						<h2 class="text-xl font-bold tracking-tight text-foreground">{ data.ClientName }</h2>
+						if data.Status.PointedAtTinyRoute {
+							@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess}) {
+								{ data.StatusLabel }
+							}
+						} else if data.Status.Installed {
+							@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusWarning}) {
+								{ data.StatusLabel }
+							}
+						} else {
+							@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusNeutral}) {
+								{ data.StatusLabel }
+							}
+						}
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Configuration Form -->
+		@card.Card() {
+			@card.Header(card.HeaderProps{Class: "border-b border-border pb-4"}) {
+				@card.Title(card.TitleProps{Class: "text-base font-semibold text-foreground"}) {
+					Endpoint & Key Configuration
+				}
+				@card.Description(card.DescriptionProps{Class: "text-xs text-muted-foreground"}) {
+					Configure routing endpoint, authentication credentials, and model slots for { data.ClientName }.
+				}
+			}
+
+			@card.Content(card.ContentProps{Class: "p-6 space-y-6"}) {
+				<form id="client-config-form" method="POST" action={ templ.SafeURL("/dashboard/clients/" + data.ClientID + "/apply") } class="space-y-6">
+					<!-- Gateway Endpoint + Current Endpoint on one line -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "client-base-url", Class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground"}) {
+								Gateway Endpoint
+							}
+							{{
+								defaultEndpointURL := ""
+								for _, ep := range data.Endpoints {
+									if ep.IsDefault {
+										defaultEndpointURL = ep.URL
+									}
+								}
+							}}
+							@selectcomp.Select(selectcomp.Props{
+								Name:         "base_url",
+								DefaultValue: defaultEndpointURL,
+							}) {
+								@selectcomp.Trigger(selectcomp.TriggerProps{
+									ID:    "client-base-url",
+									Class: "w-full h-9 rounded-md text-sm font-mono",
+								}) {
+									@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Select endpoint"})
+								}
+								@selectcomp.Content() {
+									@selectcomp.Group() {
+										for _, ep := range data.Endpoints {
+											if ep.IsDefault {
+												@selectcomp.Item(selectcomp.ItemProps{Value: ep.URL}) {
+													{ ep.URL } (Default)
+												}
+											} else {
+												@selectcomp.Item(selectcomp.ItemProps{Value: ep.URL}) {
+													{ ep.URL }
+												}
+											}
+										}
+									}
+								}
+							}
+						</div>
+
+						<div class="space-y-2">
+							@label.Label(label.Props{Class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground"}) {
+								Current Configured Endpoint
+							}
+							@input.Input(input.Props{
+								Disabled: true,
+								Value:    data.CurrentEndpoint,
+								Class:    "font-mono bg-muted text-muted-foreground",
+							})
+						</div>
+					</div>
+
+					<!-- API Key Strategy -->
+					<div class="space-y-3 pt-4 border-t border-border">
+						@label.Label(label.Props{Class: "block text-xs font-semibold uppercase tracking-wider text-muted-foreground"}) {
+							API Key Authentication
+						}
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+							<label class="flex items-center space-x-3 p-3.5 bg-card border border-border rounded-lg cursor-pointer hover:border-primary/50 transition-colors">
+								@radio.Radio(radio.Props{
+									Name:       "key_strategy",
+									Value:      "mint",
+									Checked:    !data.Status.PointedAtTinyRoute && data.SelectedKeyID == "",
+									Attributes: templ.Attributes{"data-strategy-radio": "mint"},
+								})
+								<div>
+									<span class="block text-sm font-medium text-foreground">Mint Fresh Key</span>
+									<span class="block text-xs text-muted-foreground">Auto-generate scoped API key</span>
+								</div>
+							</label>
+							<label class="flex items-center space-x-3 p-3.5 bg-card border border-border rounded-lg cursor-pointer hover:border-primary/50 transition-colors">
+								@radio.Radio(radio.Props{
+									Name:       "key_strategy",
+									Value:      "reuse",
+									Checked:    data.Status.PointedAtTinyRoute || data.SelectedKeyID != "",
+									Attributes: templ.Attributes{"data-strategy-radio": "reuse"},
+								})
+								<div>
+									<span class="block text-sm font-medium text-foreground">Provide Key</span>
+									<span class="block text-xs text-muted-foreground">Use custom or existing token</span>
+								</div>
+							</label>
+						</div>
+
+						<div id="reuse-key-panel" class={ "space-y-2 pt-2", templ.KV("hidden", !data.Status.PointedAtTinyRoute && data.SelectedKeyID == "") }>
+							if len(data.ExistingKeys) > 0 {
+								<div class="space-y-2">
+									@label.Label(label.Props{For: "client-existing-key", Class: "text-xs text-muted-foreground"}) {
+										Select an existing API key to embed
+									}
+									@selectcomp.Select(selectcomp.Props{
+										Name:         "existing_key",
+										DefaultValue: data.SelectedKeyID,
+									}) {
+										@selectcomp.Trigger(selectcomp.TriggerProps{
+											ID:    "client-existing-key",
+											Class: "w-full h-9 rounded-md text-sm font-mono",
+										}) {
+											@selectcomp.Value(selectcomp.ValueProps{Placeholder: "— Select an existing key…"})
+										}
+										@selectcomp.Content() {
+											@selectcomp.Group() {
+												@selectcomp.Item(selectcomp.ItemProps{Value: ""}) {
+													— Select an existing key…
+												}
+												for _, k := range data.ExistingKeys {
+													@selectcomp.Item(selectcomp.ItemProps{Value: k.ID}) {
+														{ k.Label }
+													}
+												}
+											}
+										}
+									}
+									<p class="text-xs text-muted-foreground">The selected key's token is embedded into { data.ClientName }'s config.</p>
+								</div>
+							} else {
+								if data.LegacyKeyCount > 0 {
+									<p class="text-xs text-muted-foreground italic">
+										{ fmt.Sprintf("You have %d existing key(s), but they were minted before embedding was enabled so their secrets can't be recovered. Choose 'Mint Fresh Key' to create an embeddable key.", data.LegacyKeyCount) }
+									</p>
+								} else {
+									<p class="text-xs text-muted-foreground italic">No existing keys yet — choose "Mint Fresh Key" to create one.</p>
+								}
+							}
+
+							if data.MaskedKey != "" {
+								<div class="text-xs text-muted-foreground flex items-center gap-1.5 pt-1">
+									@icon.Key(icon.Props{Class: "size-3.5 text-muted-foreground"})
+									<span>Current stored key: <code class="text-foreground font-mono bg-muted px-1 py-0.5 rounded">{ data.MaskedKey }</code></span>
+								</div>
+							}
+						</div>
+					</div>
+
+					<!-- Model Slots -->
+					if len(data.ModelSlots) > 0 {
+						<div class="space-y-4 pt-4 border-t border-border">
+							<div>
+								<h4 class="font-semibold text-sm text-foreground">Model Slots</h4>
+							</div>
+
+							for _, slot := range data.ModelSlots {
+								{{ slotVal := SlotValue(data.SlotValues, slot) }}
+								{{ slotDialogID := fmt.Sprintf("dialog-slot-%s", slot.ID) }}
+								{{ baseVal := strings.TrimSuffix(slotVal, contextWindowSuffix) }}
+								{{ has1M := strings.HasSuffix(slotVal, contextWindowSuffix) }}
+								<div class="space-y-2">
+									<div class="flex items-center justify-between gap-2">
+										@label.Label(label.Props{Class: "text-xs font-semibold text-foreground"}) {
+											{ slot.Name }
+											if slot.Required {
+												<span class="text-destructive">*</span>
+											}
+										}
+										if data.ClientID == "claude" {
+											<label class="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none" title="Use the 1M-token extended context window for this model (appends the [1m] suffix)">
+												<input
+													type="checkbox"
+													id={ fmt.Sprintf("1m-check-%s", slot.ID) }
+													checked?={ has1M }
+													data-slot-id={ slot.ID }
+													class="1m-checkbox size-3.5 rounded border-input bg-card text-primary focus:ring-ring cursor-pointer"
+												/>
+												<span>1M context</span>
+											</label>
+										}
+									</div>
+
+									<input
+										type="hidden"
+										id={ fmt.Sprintf("hidden-slot-%s", slot.ID) }
+										name={ "slot_" + slot.ID }
+										value={ slotVal }
+									/>
+
+									<!-- Picker Dialog -->
+									@dialog.Dialog(dialog.Props{ID: slotDialogID}) {
+										@dialog.Trigger(dialog.TriggerProps{For: slotDialogID}) {
+											<button
+												type="button"
+												id={ fmt.Sprintf("btn-slot-%s", slot.ID) }
+												class="w-full flex items-center justify-between gap-2 bg-card border border-input rounded-md px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer"
+											>
+												<span id={ fmt.Sprintf("label-slot-%s", slot.ID) } class="font-mono truncate">
+													if slotVal != "" {
+														{ slotVal }
+													} else {
+														{ slotPlaceholder(slot) }
+													}
+												</span>
+												@icon.ChevronRight(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
+											</button>
+										}
+										@dialog.Content(dialog.ContentProps{Class: "w-full max-w-lg p-0 overflow-hidden"}) {
+											@dialog.Header(dialog.HeaderProps{Class: "p-4 border-b border-border"}) {
+												@dialog.Title() {
+													{ slot.Name }
+												}
+												@dialog.Description() {
+													Select a model from connected providers
+												}
+											}
+
+											<!-- Search Bar inside picker -->
+											<div class="p-3 border-b border-border bg-muted/20">
+												@inputgroup.InputGroup() {
+													@inputgroup.Addon() {
+														@icon.Search()
+													}
+													@inputgroup.Input(inputgroup.InputProps{
+														Type:        "search",
+														Placeholder: "Search models or providers…",
+														Attributes:  templ.Attributes{"data-filter-input": "picker-" + slot.ID},
+													})
+												}
+											</div>
+
+											<div class="p-3 max-h-[60vh] overflow-y-auto scroll-fade space-y-3">
+												if !slot.Required {
+													<button
+														type="button"
+														data-filter-item={ "picker-" + slot.ID }
+														data-filter-text="none default"
+														data-slot-id={ slot.ID }
+														data-model-val=""
+														data-dialog-id={ slotDialogID }
+														class="model-picker-btn w-full flex items-center justify-between px-3 py-2.5 rounded-md border border-border bg-card text-sm font-mono text-muted-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+													>
+														<span>(None / Default)</span>
+													</button>
+												}
+												for _, group := range data.ProviderModelGroups {
+													<div class="space-y-1.5">
+														<div class="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ group.Provider }</div>
+														for _, m := range group.Models {
+															<button
+																type="button"
+																data-filter-item={ "picker-" + slot.ID }
+																data-filter-text={ fmt.Sprintf("%s %s %s", m.Label, m.Value, group.Provider) }
+																data-slot-id={ slot.ID }
+																data-model-val={ m.Value }
+																data-dialog-id={ slotDialogID }
+																class="model-picker-btn w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-border bg-card text-sm font-mono text-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+															>
+																<span class="truncate">{ m.Label }</span>
+																if baseVal == m.Value {
+																	@icon.Check(icon.Props{Class: "size-4 shrink-0 text-primary"})
+																}
+															</button>
+														}
+													</div>
+												}
+											</div>
+										}
+									}
+								</div>
+							}
+						</div>
+					}
+
+					<!-- Form Actions -->
+					<div class="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-3">
+						<div class="flex items-center gap-3">
+							@button.Button(button.Props{
+								ID:    "btn-apply-changes",
+								Type:  button.TypeButton,
+								Class: "gap-2 shadow-sm",
+								Attributes: templ.Attributes{
+									"data-client-id": data.ClientID,
+								},
+							}) {
+								@icon.Check(icon.Props{Class: "size-4"})
+								<span id="btn-apply-text">Apply Changes</span>
+							}
+
+							<!-- Manual Config Sheet Trigger -->
+							@sheet.Sheet(sheet.Props{ID: "sheet-manual-config", Side: sheet.SideRight}) {
+								@sheet.Trigger(sheet.TriggerProps{For: "sheet-manual-config"}) {
+									@button.Button(button.Props{
+										Variant: button.VariantSecondary,
+										Type:    button.TypeButton,
+										Class:   "gap-2",
+									}) {
+										@icon.Code(icon.Props{Class: "size-4 text-muted-foreground"})
+										<span>Manual Config</span>
+									}
+								}
+								@sheet.Content(sheet.ContentProps{Class: "w-full sm:max-w-lg"}) {
+									@sheet.Header() {
+										@sheet.Title() {
+											Manual Configuration
+										}
+										@sheet.Description() {
+											Environment variables for terminal or shell profile
+										}
+									}
+									<div class="p-4 space-y-3">
+										<p class="text-xs text-muted-foreground">Add these variables to your terminal session or shell configuration:</p>
+										<pre class="p-4 bg-muted/50 border border-border rounded-lg text-xs font-mono text-foreground overflow-x-auto select-all">{ data.ManualSnippet }</pre>
+									</div>
+									@sheet.Footer() {
+										@sheet.Close() {
+											@button.Button(button.Props{
+												Variant:   button.VariantOutline,
+												FullWidth: true,
+											}) {
+												Close
+											}
+										}
+									}
+								}
+							}
+						</div>
+
+						if data.Status.PointedAtTinyRoute || data.Status.Installed {
+							<form
+								method="POST"
+								action={ templ.SafeURL("/dashboard/clients/" + data.ClientID + "/reset") }
+								onsubmit="return confirm('Reset configuration for this client?')"
+								class="inline"
+							>
+								@button.Button(button.Props{
+									Type:    button.TypeSubmit,
+									Variant: button.VariantDestructive,
+									Class:   "gap-2",
+								}) {
+									@icon.RotateCcw(icon.Props{Class: "size-4"})
+									<span>Reset Config</span>
+								}
+							</form>
+						}
+					</div>
+				</form>
+			}
+		}
+
+		<!-- Confirmation Preview Dialog -->
+		@dialog.Dialog(dialog.Props{ID: "dialog-client-confirm"}) {
+			@dialog.Content(dialog.ContentProps{Class: "max-w-lg space-y-4"}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						Confirm Configuration Preview
+					}
+					@dialog.Description() {
+						Review the resolved configuration before writing changes.
+					}
+				}
+
+				<div class="space-y-3 text-xs">
+					<div class="flex justify-between py-1.5 border-b border-border">
+						<span class="text-muted-foreground">Client:</span>
+						<span id="plan-client-name" class="font-semibold text-foreground"></span>
+					</div>
+					<div class="flex justify-between py-1.5 border-b border-border">
+						<span class="text-muted-foreground">Base URL:</span>
+						<span id="plan-base-url" class="font-mono text-primary"></span>
+					</div>
+					<div class="flex justify-between py-1.5 border-b border-border">
+						<span class="text-muted-foreground">API Key Strategy:</span>
+						<span id="plan-key-strategy" class="font-medium text-emerald-400"></span>
+					</div>
+					<div id="plan-model-row" class="flex justify-between py-1.5 border-b border-border">
+						<span class="text-muted-foreground">Primary Model:</span>
+						<span id="plan-model" class="font-mono text-foreground"></span>
+					</div>
+					<div class="flex justify-between py-1.5 border-b border-border">
+						<span class="text-muted-foreground">Target Config File:</span>
+						<span id="plan-config-path" class="font-mono text-muted-foreground truncate max-w-[240px]"></span>
+					</div>
+				</div>
+
+				@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border"}) {
+					@dialog.Close() {
+						@button.Button(button.Props{
+							Variant: button.VariantOutline,
+							Type:    button.TypeButton,
+						}) {
+							Cancel
+						}
+					}
+					@button.Button(button.Props{
+						ID:    "btn-confirm-apply",
+						Type:  button.TypeButton,
+						Class: "gap-2",
+						Attributes: templ.Attributes{
+							"onclick": "document.getElementById('client-config-form').submit()",
+						},
+					}) {
+						@icon.Check(icon.Props{Class: "size-4"})
+						<span>Confirm & Apply</span>
+					}
+				}
+			}
+		}
+
+		@clientDetailScripts()
+	</div>
+}
+
+templ viewKeyReveal(data KeyRevealPageData) {
+	<div class="max-w-2xl mx-auto space-y-6 pt-6">
+		@card.Card(card.Props{Class: "p-6 space-y-6 shadow-xl"}) {
+			<div class="flex items-center gap-3">
+				<div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/30">
+					@icon.CircleCheck(icon.Props{Class: "size-6"})
+				</div>
+				<div>
+					<h2 class="text-xl font-bold text-foreground">Client Installed & Key Minted</h2>
+					<p class="text-xs text-muted-foreground mt-0.5">{ data.ClientName } ({ data.ClientID }) configured successfully.</p>
+				</div>
+			</div>
+
+			<div class="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-2">
+				<div class="flex items-center gap-2 text-amber-300 font-semibold text-sm">
+					@icon.TriangleAlert(icon.Props{Class: "size-4 text-amber-400"})
+					<span>Minted API Key (Shown Once)</span>
+				</div>
+				<p class="text-xs text-amber-200/80">Save this key now. It will never be displayed in plaintext again.</p>
+				<div class="mt-3 flex items-center gap-2">
+					<input
+						id="minted-key-input"
+						type="text"
+						readonly
+						value={ data.MintedKey }
+						class="flex-1 bg-muted/50 border border-border rounded-md px-3.5 py-2 text-sm text-emerald-400 font-mono select-all focus:outline-none"
+					/>
+					@button.Button(button.Props{
+						Type:    button.TypeButton,
+						Variant: button.VariantSecondary,
+						Class:   "gap-1.5",
+						Attributes: templ.Attributes{
+							"onclick": "copyMintedKey(this)",
+						},
+					}) {
+						<span>Copy</span>
+					}
+				</div>
+			</div>
+
+			<div class="space-y-2 text-xs text-muted-foreground border-t border-border pt-4">
+				<div class="flex justify-between">
+					<span>Gateway Base URL:</span>
+					<code class="text-foreground font-mono">{ data.BaseURL }</code>
+				</div>
+				<div class="flex justify-between">
+					<span>Config File:</span>
+					<code class="text-foreground font-mono">{ data.ConfigPath }</code>
+				</div>
+			</div>
+
+			<div class="pt-4 border-t border-border flex justify-end">
+				@button.Button(button.Props{
+					Href:    "/dashboard/clients/" + data.ClientID,
+					Variant: button.VariantOutline,
+				}) {
+					Back to Client Editor
+				}
+			</div>
+		}
+	</div>
+}
+
+templ clientDetailScripts() {
+	<script>
+		function toggleKeyStrategy(strategy) {
+			const panel = document.getElementById('reuse-key-panel');
+			if (!panel) return;
+			if (strategy === 'reuse') {
+				panel.classList.remove('hidden');
+			} else {
+				panel.classList.add('hidden');
+			}
+		}
+
+		function selectSlotModel(slotId, modelValue, dialogId) {
+			const hiddenInput = document.getElementById('hidden-slot-' + slotId);
+			const labelSpan = document.getElementById('label-slot-' + slotId);
+			const check1M = document.getElementById('1m-check-' + slotId);
+
+			let finalVal = modelValue;
+			if (finalVal && check1M && check1M.checked) {
+				finalVal += '[1m]';
+			}
+
+			if (hiddenInput) hiddenInput.value = finalVal;
+			if (labelSpan) {
+				labelSpan.textContent = finalVal || '(None / Default)';
+			}
+
+			if (check1M) {
+				check1M.disabled = !modelValue;
+			}
+
+			// Close the dialog using templui API or native fallback
+			if (window.tui && window.tui.dialog) {
+				window.tui.dialog.close(dialogId);
+			} else {
+				const dialogEl = document.getElementById(dialogId);
+				const dialogNode = dialogEl ? dialogEl.querySelector('dialog') : null;
+				if (dialogNode && dialogNode.close) dialogNode.close();
+			}
+		}
+
+		function toggle1M(slotId) {
+			const hiddenInput = document.getElementById('hidden-slot-' + slotId);
+			const labelSpan = document.getElementById('label-slot-' + slotId);
+			const check1M = document.getElementById('1m-check-' + slotId);
+			if (!hiddenInput) return;
+
+			let val = hiddenInput.value || '';
+			val = val.replace(/\[1m\]$/, '');
+			if (val && check1M && check1M.checked) {
+				val += '[1m]';
+			}
+
+			hiddenInput.value = val;
+			if (labelSpan) {
+				labelSpan.textContent = val || '(None / Default)';
+			}
+		}
+
+		async function handleApplyClick(clientId) {
+			const form = document.getElementById('client-config-form');
+			const btnText = document.getElementById('btn-apply-text');
+			if (!form) return;
+
+			if (btnText) btnText.textContent = 'Planning...';
+
+			const formData = new FormData(form);
+			try {
+				const resp = await fetch(`/dashboard/clients/${encodeURIComponent(clientId)}/plan`, {
+					method: 'POST',
+					body: new URLSearchParams(formData)
+				});
+				if (resp.ok) {
+					const plan = await resp.json();
+					document.getElementById('plan-client-name').textContent = plan.client_name + ' (' + plan.client_id + ')';
+					document.getElementById('plan-base-url').textContent = plan.base_url;
+					document.getElementById('plan-key-strategy').textContent = plan.key_strategy === 'mint' ? 'Mint fresh key (' + plan.dialect + ':*)' : 'Use provided key';
+					
+					const modelRow = document.getElementById('plan-model-row');
+					const modelEl = document.getElementById('plan-model');
+					if (plan.model) {
+						modelEl.textContent = plan.model;
+						modelRow.classList.remove('hidden');
+					} else {
+						modelRow.classList.add('hidden');
+					}
+
+					document.getElementById('plan-config-path').textContent = plan.config_path;
+
+					if (window.tui && window.tui.dialog) {
+						window.tui.dialog.open('dialog-client-confirm');
+					} else {
+						const confirmDialog = document.getElementById('dialog-client-confirm');
+						const dialogNode = confirmDialog ? confirmDialog.querySelector('dialog') : null;
+						if (dialogNode && dialogNode.showModal) dialogNode.showModal();
+					}
+				} else {
+					form.submit();
+				}
+			} catch(e) {
+				form.submit();
+			} finally {
+				if (btnText) btnText.textContent = 'Apply Changes';
+			}
+		}
+
+		function copyMintedKey(btn) {
+			const input = document.getElementById('minted-key-input');
+			if (!input) return;
+			navigator.clipboard.writeText(input.value);
+			const orig = btn.innerHTML;
+			btn.innerText = 'Copied!';
+			setTimeout(() => { btn.innerHTML = orig; }, 2000);
+		}
+
+		// Document-level event delegation for client detail
+		document.addEventListener('click', (e) => {
+			const pickerBtn = e.target.closest('.model-picker-btn');
+			if (pickerBtn) {
+				selectSlotModel(pickerBtn.dataset.slotId, pickerBtn.dataset.modelVal, pickerBtn.dataset.dialogId);
+				return;
+			}
+
+			const applyBtn = e.target.closest('#btn-apply-changes');
+			if (applyBtn) {
+				handleApplyClick(applyBtn.dataset.clientId);
+				return;
+			}
+		});
+
+		document.addEventListener('change', (e) => {
+			if (e.target.matches('[data-strategy-radio]')) {
+				toggleKeyStrategy(e.target.value);
+			} else if (e.target.matches('.1m-checkbox')) {
+				toggle1M(e.target.dataset.slotId);
+			}
+		});
+	</script>
+}

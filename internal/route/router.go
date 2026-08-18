@@ -3,6 +3,7 @@ package route
 import (
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -183,6 +184,14 @@ func (r *Router) Resolve(surface string, model string) (core.ResolvedRoute, erro
 			if !foundAcc {
 				return core.ResolvedRoute{}, fmt.Errorf("unknown account %q for provider %q in model request %q", accName, provName, model)
 			}
+		}
+
+		// Context-window suffix: a trailing "[1m]" asks for the 1M-token
+		// context variant of a model. It is a client-side hint, not part of
+		// the upstream model name — strip it before whitelist matching and
+		// routing, unless the literal suffixed name is explicitly whitelisted.
+		if strings.HasSuffix(targetModel, "[1m]") && !slices.Contains(prov.Models, targetModel) {
+			targetModel = strings.TrimSuffix(targetModel, "[1m]")
 		}
 
 		// Check whitelist if configured

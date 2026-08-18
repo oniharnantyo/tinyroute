@@ -256,3 +256,30 @@ func TestMiddleware_PreProxyEarlyReturn401(t *testing.T) {
 		t.Errorf("expected numeric latency attribute, got %v", logRecord["latency"])
 	}
 }
+
+func TestMiddleware_SkipsAssetsLogging(t *testing.T) {
+	for _, assetPath := range []string{
+		"/dashboard/assets/filter.js",
+		"/dashboard/assets/styles.css",
+		"/dashboard/assets/logos/opencode.svg",
+		"/assets/custom.js",
+		"/favicon.ico",
+	} {
+		rec := httptest.NewRecorder()
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		})
+
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, nil))
+		mw := accesslog.Middleware(logger)
+
+		req := httptest.NewRequest(http.MethodGet, assetPath, nil)
+		mw(handler).ServeHTTP(rec, req)
+
+		if buf.Len() != 0 {
+			t.Errorf("expected no log output for asset path %q, got: %s", assetPath, buf.String())
+		}
+	}
+}

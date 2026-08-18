@@ -2,22 +2,18 @@ package dashboard
 
 import (
 	"fmt"
-	"strings"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/assets"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dialog"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/inputgroup"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
+	selectcomp "github.com/oniharnantyo/tinyroute/internal/dashboard/components/select"
 )
-
-func jsEscape(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "'", "\\'")
-}
-
-func secMatchesJS(cards []ProviderCardData) string {
-	var terms []string
-	for _, c := range cards {
-		terms = append(terms, fmt.Sprintf("'%s %s %s'", jsEscape(c.Name), jsEscape(c.DisplayName), jsEscape(c.Dialect)))
-	}
-	return fmt.Sprintf("!search || [%s].some(t => t.toLowerCase().includes(search.toLowerCase()))", strings.Join(terms, ", "))
-}
 
 type MaskedConnectionItem struct {
 	Account      string
@@ -56,156 +52,219 @@ type ProviderSection struct {
 
 type ProvidersPageData struct {
 	Sections []ProviderSection
-	Flash    string
-	Error    string
 }
 
 templ ProvidersPage(data ProvidersPageData) {
-	<div class="space-y-6" x-data="{ search: '', showAddDialog: false }">
+	<div class="space-y-6">
 		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 			<div>
-				<h2 class="text-xl font-bold tracking-tight text-white">Providers</h2>
-				<p class="text-xs text-slate-400">Browse and manage upstream AI providers and API credentials</p>
+				<h2 class="text-xl font-bold tracking-tight text-foreground">Providers</h2>
+				<p class="text-xs text-muted-foreground">Browse and manage upstream AI providers and API credentials</p>
 			</div>
-			<button @click="showAddDialog = true" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
-				@components.Icon("plus", "w-4 h-4")
-				<span>Add Custom Provider</span>
-			</button>
-		</div>
 
+			<!-- Add Custom Provider Modal Trigger & Dialog -->
+			@dialog.Dialog(dialog.Props{ID: "dialog-add-custom-provider"}) {
+				@dialog.Trigger(dialog.TriggerProps{For: "dialog-add-custom-provider"}) {
+					@button.Button(button.Props{
+						Class: "shadow-sm gap-2",
+					}) {
+						@icon.Plus(icon.Props{Class: "size-4"})
+						<span>Add Custom Provider</span>
+					}
+				}
+				@dialog.Content() {
+					@dialog.Header() {
+						@dialog.Title() {
+							Add Custom Provider
+						}
+						@dialog.Description() {
+							Configure a custom OpenAI, Anthropic, or Gemini compatible endpoint.
+						}
+					}
+					<form method="POST" action="/dashboard/providers/add-custom" class="space-y-4 mt-2">
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "provider-name", Class: "text-xs font-medium text-foreground"}) {
+								Provider Name
+							}
+							@input.Input(input.Props{
+								ID:          "provider-name",
+								Name:        "name",
+								Placeholder: "e.g. my-custom-llm",
+								Required:    true,
+								Class:       "font-mono",
+							})
+						</div>
+
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "provider-dialect", Class: "text-xs font-medium text-foreground"}) {
+								Dialect
+							}
+							@selectcomp.Select(selectcomp.Props{
+								Name:         "dialect",
+								DefaultValue: "openai",
+							}) {
+								@selectcomp.Trigger(selectcomp.TriggerProps{
+									ID:    "provider-dialect",
+									Class: "w-full h-9 rounded-md text-sm",
+								}) {
+									@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Select dialect"})
+								}
+								@selectcomp.Content() {
+									@selectcomp.Item(selectcomp.ItemProps{Value: "openai"}) { openai }
+									@selectcomp.Item(selectcomp.ItemProps{Value: "anthropic"}) { anthropic }
+									@selectcomp.Item(selectcomp.ItemProps{Value: "gemini"}) { gemini }
+								}
+							}
+						</div>
+
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "provider-base-url", Class: "text-xs font-medium text-foreground"}) {
+								Base URL
+							}
+							@input.Input(input.Props{
+								ID:          "provider-base-url",
+								Name:        "base_url",
+								Type:        input.TypeURL,
+								Placeholder: "https://api.myllm.com/v1",
+								Required:    true,
+								Class:       "font-mono",
+							})
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4"}) {
+							@dialog.Close() {
+								@button.Button(button.Props{
+									Variant: button.VariantOutline,
+									Type:    button.TypeButton,
+								}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{
+								Type: button.TypeSubmit,
+							}) {
+								Add Custom Provider
+							}
+						}
+					</form>
+				}
+			}
+		</div>
 
 		<!-- Provider Filter Search -->
-		<div class="relative">
-			<input type="text" x-model="search" placeholder="Search providers by name or dialect..." class="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono shadow-inner"/>
-			<div class="absolute left-3 top-3 text-slate-500">
-				@components.Icon("search", "w-4 h-4")
-			</div>
-		</div>
+		@inputgroup.InputGroup() {
+			@inputgroup.Addon() {
+				@icon.Search()
+			}
+			@inputgroup.Input(inputgroup.InputProps{
+				Type:        "search",
+				Placeholder: "Search providers by name or dialect...",
+				Attributes:  templ.Attributes{"data-filter-input": "providers"},
+			})
+		}
 
 		<!-- Grouped Provider Cards Sections -->
 		if len(data.Sections) == 0 {
-			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
-				<div class="inline-flex p-4 bg-slate-950 text-slate-500 rounded-2xl border border-slate-800">
-					@components.Icon("cpu", "w-8 h-8")
-				</div>
-				<div class="space-y-1">
-					<h3 class="font-semibold text-base text-white">No Providers Found</h3>
-					<p class="text-xs text-slate-400 max-w-sm mx-auto">Get started by adding a custom provider or configuring a preset.</p>
-				</div>
-			</div>
+			@empty.Empty() {
+				@empty.Header() {
+					@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+						@icon.Cpu()
+					}
+					@empty.Title() { No Providers Found }
+					@empty.Description() { Get started by adding a custom provider or configuring a preset. }
+				}
+			}
 		} else {
 			for _, sec := range data.Sections {
-				<div class="space-y-3" x-show={ secMatchesJS(sec.Cards) }>
-					<div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
-						<h3 class="font-bold text-sm text-white tracking-wide uppercase flex items-center gap-2">
-							<span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+				<div class="space-y-3">
+					<div class="flex items-center justify-between border-b border-border pb-2">
+						<h3 class="font-bold text-xs text-foreground tracking-wider uppercase flex items-center gap-2">
+							<span class="size-2 rounded-full bg-primary"></span>
 							{ sec.Title } ({ fmt.Sprintf("%d", len(sec.Cards)) })
 						</h3>
 					</div>
 
 					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 						for _, prov := range sec.Cards {
-							<a href={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s", prov.Name)) } x-show={ fmt.Sprintf("!search || '%s %s %s'.toLowerCase().includes(search.toLowerCase())", jsEscape(prov.Name), jsEscape(prov.DisplayName), jsEscape(prov.Dialect)) } class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4 flex flex-col justify-between hover:border-indigo-500/50 hover:bg-slate-900 transition-all group block">
-								<div class="space-y-3">
-									<div class="flex items-center space-x-3">
-										@providerLogo(prov.Name, prov.Logo)
-										<div>
-											<h3 class="font-bold text-base text-white tracking-tight group-hover:text-indigo-300 transition-colors">
-												if prov.DisplayName != "" {
-													{ prov.DisplayName }
-												} else {
-													{ prov.Name }
+							<a
+								href={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s", prov.Name)) }
+								data-filter-item="providers"
+								data-filter-text={ fmt.Sprintf("%s %s %s", prov.Name, prov.DisplayName, prov.Dialect) }
+								class="block group"
+							>
+								@card.Card(card.Props{
+									Class: "h-full p-5 flex flex-col justify-between transition-all hover:border-primary/50 hover:bg-muted/30 group-hover:shadow-md",
+								}) {
+									<div class="space-y-3">
+										<div class="flex items-center space-x-3">
+											@providerLogo(prov.Name, prov.Logo)
+											<div>
+												<h3 class="font-semibold text-sm text-foreground tracking-tight group-hover:text-primary transition-colors">
+													if prov.DisplayName != "" {
+														{ prov.DisplayName }
+													} else {
+														{ prov.Name }
+													}
+												</h3>
+												if prov.Tier != "" {
+													<div class="flex items-center gap-1.5 mt-0.5">
+														@components.StatusBadge(components.StatusBadgeProps{
+															Variant: components.StatusWarning,
+															Class:   "text-[10px] px-1.5 py-0 font-mono",
+														}) {
+															{ prov.Tier }
+														}
+													</div>
 												}
-											</h3>
-											if prov.Tier != "" {
-												<div class="flex items-center gap-1.5 mt-0.5">
-													<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">{ prov.Tier }</span>
-												</div>
-											}
+											</div>
 										</div>
+
+										if prov.FreeNote != "" {
+											<p class="text-[11px] text-amber-400/90 italic">{ prov.FreeNote }</p>
+										}
 									</div>
 
-									if prov.FreeNote != "" {
-										<p class="text-[11px] text-amber-400/90 italic">{ prov.FreeNote }</p>
-									}
-								</div>
-
-								<div class="pt-3 border-t border-slate-800/60 flex items-center justify-between">
-									if prov.Configured {
-										<div class="flex items-center space-x-2 text-[11px] font-mono text-slate-400">
-											<span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300">
-												{ fmt.Sprintf("%d conn", prov.ConnectionCount) }
+									<div class="pt-3 border-t border-border flex items-center justify-between mt-3">
+										if prov.Configured {
+											<div class="flex items-center space-x-1.5 text-[11px] font-mono text-muted-foreground">
+												<span class="px-1.5 py-0.5 rounded bg-muted border border-border text-foreground">
+													{ fmt.Sprintf("%d conn", prov.ConnectionCount) }
+												</span>
+												<span class="px-1.5 py-0.5 rounded bg-muted border border-border text-foreground">
+													{ fmt.Sprintf("%d models", prov.WhitelistedCount) }
+												</span>
+											</div>
+											<span class="text-xs text-primary group-hover:translate-x-0.5 transition-transform">
+												@icon.ChevronRight(icon.Props{Class: "size-4"})
 											</span>
-											<span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300">
-												{ fmt.Sprintf("%d models", prov.WhitelistedCount) }
+										} else {
+											<span class="text-[11px] text-muted-foreground font-mono italic">Not configured</span>
+											<span class="text-xs text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all">
+												@icon.ChevronRight(icon.Props{Class: "size-4"})
 											</span>
-										</div>
-										<span class="text-xs text-indigo-400 group-hover:translate-x-0.5 transition-transform">
-											@components.Icon("chevron-right", "w-4 h-4")
-										</span>
-									} else {
-										<span class="text-[11px] text-slate-500 font-mono italic">Not configured</span>
-										<span class="text-xs text-slate-500 group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all">
-											@components.Icon("chevron-right", "w-4 h-4")
-										</span>
-									}
-								</div>
+										}
+									</div>
+								}
 							</a>
 						}
 					</div>
 				</div>
 			}
 		}
-
-		<!-- Add Custom Provider Modal -->
-		<div x-show="showAddDialog" x-transition.opacity class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" style="display: none;">
-			<div @click.away="showAddDialog = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-6">
-				<div class="flex items-center justify-between border-b border-slate-800 pb-3">
-					<h3 class="font-bold text-lg text-white">Add Custom Provider</h3>
-					<button @click="showAddDialog = false" class="text-slate-400 hover:text-white">
-						@components.Icon("x-circle", "w-5 h-5")
-					</button>
-				</div>
-
-				<form method="POST" action="/dashboard/providers/add-custom" class="space-y-4">
-					<div class="space-y-1.5">
-						<label class="block text-xs font-medium text-slate-300">Provider Name</label>
-						<input type="text" name="name" required placeholder="e.g. my-custom-llm" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-indigo-500"/>
-					</div>
-					<div class="space-y-1.5">
-						<label class="block text-xs font-medium text-slate-300">Dialect</label>
-						<select name="dialect" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500">
-							<option value="openai">openai</option>
-							<option value="anthropic">anthropic</option>
-							<option value="gemini">gemini</option>
-						</select>
-					</div>
-					<div class="space-y-1.5">
-						<label class="block text-xs font-medium text-slate-300">Base URL</label>
-						<input type="url" name="base_url" required placeholder="https://api.myllm.com/v1" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-indigo-500"/>
-					</div>
-
-					<div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
-						<button type="button" @click="showAddDialog = false" class="py-2 px-3 bg-slate-800 text-slate-300 text-xs font-medium rounded-xl">Cancel</button>
-						<button type="submit" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl">Add Custom Provider</button>
-					</div>
-				</form>
-			</div>
-		</div>
 	</div>
 }
 
 templ providerLogo(name string, logoName string) {
 	if logoData, ok := assets.LogoSVG(logoName); ok && logoName != "" {
-		<div class="w-7 h-7 flex items-center justify-center text-white shrink-0">
+		<div class="size-7 flex items-center justify-center text-foreground shrink-0">
 			@templ.Raw(string(logoData))
 		</div>
 	} else if logoData, ok := assets.LogoSVG(name); ok {
-		<div class="w-7 h-7 flex items-center justify-center text-white shrink-0">
+		<div class="size-7 flex items-center justify-center text-foreground shrink-0">
 			@templ.Raw(string(logoData))
 		</div>
 	} else {
-		<div class="w-7 h-7 bg-slate-950 border border-slate-800 rounded-lg text-indigo-400 font-bold text-xs flex items-center justify-center uppercase font-mono shrink-0">
+		<div class="size-7 bg-muted border border-border rounded-lg text-primary font-bold text-xs flex items-center justify-center uppercase font-mono shrink-0">
 			{ name[:2] }
 		</div>
 	}

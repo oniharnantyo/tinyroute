@@ -7,15 +7,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/oniharnantyo/tinyroute/internal/auth"
+	"github.com/oniharnantyo/tinyroute/internal/clients"
 	"github.com/oniharnantyo/tinyroute/internal/config"
 	"github.com/oniharnantyo/tinyroute/internal/credential"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/assets"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
 	"github.com/oniharnantyo/tinyroute/internal/history"
 	"github.com/oniharnantyo/tinyroute/internal/oauth"
 	"github.com/oniharnantyo/tinyroute/internal/preset"
@@ -48,6 +52,7 @@ type DashboardHandler struct {
 	deps            *Deps
 	oauthStateStore map[string]OAuthStateSession
 	mu              sync.RWMutex
+	keysMu          sync.Mutex
 }
 
 func NewHandler(deps *Deps) *DashboardHandler {
@@ -63,6 +68,9 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 	// Static assets handler
 	assetsFS := http.FileServer(assets.FS())
 	mux.Handle("GET /dashboard/assets/", http.StripPrefix("/dashboard/assets/", assetsFS))
+
+	// shadcn-templ component JS bundle (inputgroup, etc.)
+	mux.Handle("GET /components/", components.ScriptsHandler())
 
 	// Auth routes
 	mux.HandleFunc("GET /dashboard/login", h.handleLoginView)
@@ -94,10 +102,20 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 
 	protectedMux.HandleFunc("GET /dashboard/routes", h.handleRoutesView)
 	protectedMux.HandleFunc("GET /dashboard/history", h.handleHistoryView)
+	protectedMux.HandleFunc("GET /dashboard/history/{id}", h.handleHistoryDetailView)
 	protectedMux.HandleFunc("GET /dashboard/keys", h.handleKeysView)
+	protectedMux.HandleFunc("POST /dashboard/keys/create", h.handleKeyCreate)
+	protectedMux.HandleFunc("POST /dashboard/keys/{id}/update", h.handleKeyUpdate)
+	protectedMux.HandleFunc("POST /dashboard/keys/{id}/revoke", h.handleKeyRevoke)
 
 	protectedMux.HandleFunc("GET /dashboard/settings", h.handleSettingsView)
 	protectedMux.HandleFunc("POST /dashboard/settings/password", h.handlePasswordChange)
+
+	protectedMux.HandleFunc("GET /dashboard/clients", h.handleClientsView)
+	protectedMux.HandleFunc("GET /dashboard/clients/{id}", h.handleClientDetailView)
+	protectedMux.HandleFunc("POST /dashboard/clients/{id}/plan", h.handleClientPlan)
+	protectedMux.HandleFunc("POST /dashboard/clients/{id}/apply", h.handleClientApply)
+	protectedMux.HandleFunc("POST /dashboard/clients/{id}/reset", h.handleClientReset)
 
 	// Wrap protected routes with Auth + Host/Origin guard middleware
 	guarded := HostGuardMiddleware(h.authMiddleware(protectedMux))
@@ -239,13 +257,7 @@ func titleCase(s string) string {
 }
 
 func (h *DashboardHandler) handleProvidersView(w http.ResponseWriter, r *http.Request) {
-	flash := r.URL.Query().Get("flash")
-	errStr := r.URL.Query().Get("error")
-
-	data := ProvidersPageData{
-		Flash: flash,
-		Error: errStr,
-	}
+	data := ProvidersPageData{}
 
 	topo := h.deps.TopologyWatcher.Get()
 	credStore, _ := credential.NewStore(h.deps.Service.CredentialsPath)
@@ -619,8 +631,6 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		UserCode:          r.URL.Query().Get("user_code"),
 		VerificationURI:   r.URL.Query().Get("verification_uri"),
 		DeviceID:          r.URL.Query().Get("device_id"),
-		Flash:             r.URL.Query().Get("flash"),
-		Error:             r.URL.Query().Get("error"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1255,38 +1265,72 @@ func (h *DashboardHandler) handleRoutesView(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *DashboardHandler) handleHistoryView(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	provider := q.Get("provider")
+	fromStr := q.Get("from")
+	toStr := q.Get("to")
+
+	limit := 50
+	if lStr := q.Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > history.MaxListLimit {
+		limit = history.MaxListLimit
+	}
+
+	filter := history.Filter{
+		Provider: provider,
+		Limit:    limit,
+	}
+
+	if fromStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", fromStr, time.Local); err == nil {
+			filter.From = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+		}
+	}
+	if toStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", toStr, time.Local); err == nil {
+			filter.To = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 999999999, time.Local)
+		}
+	}
+
 	data := HistoryPageData{
-		FilterProvider: r.URL.Query().Get("provider"),
-		FilterKey:      r.URL.Query().Get("key"),
-		FilterSession:  r.URL.Query().Get("session"),
-		FilterModel:    r.URL.Query().Get("model"),
+		FilterProvider: provider,
+		FilterFrom:     fromStr,
+		FilterTo:       toStr,
+		Limit:          limit,
+	}
+
+	if h.deps.TopologyWatcher != nil {
+		if topo := h.deps.TopologyWatcher.Get(); topo != nil {
+			for pName := range topo.Providers {
+				data.AvailableProviders = append(data.AvailableProviders, pName)
+			}
+			sort.Strings(data.AvailableProviders)
+		}
 	}
 
 	if h.deps.HistoryQuerier != nil {
-		if recs, nextCursor, err := h.deps.HistoryQuerier.List(r.Context(), history.Filter{
-			Provider: data.FilterProvider,
-			KeyID:    data.FilterKey,
-			Session:  data.FilterSession,
-			Cursor:   r.URL.Query().Get("cursor"),
-			Limit:    50,
-		}); err == nil {
-			data.NextCursor = nextCursor
+		if recs, nextCursor, err := h.deps.HistoryQuerier.List(r.Context(), filter); err == nil {
+			data.HasMore = nextCursor != ""
 			for _, rec := range recs {
-				statusCode := 200
-				if rec.Outcome != "success" {
-					statusCode = 500
-				}
+				attempts := decodeAttempts(rec.Attempts)
+				statusCode := deriveStatusCode(rec.Outcome, attempts)
 				data.Rows = append(data.Rows, HistoryRowItem{
 					ID:               rec.ID,
-					Timestamp:        rec.Timestamp.Format("15:04:05"),
+					Timestamp:        rec.Timestamp.Local().Format("Jan 2 15:04:05"),
 					Dialect:          rec.Endpoint,
 					Model:            rec.ModelReq,
 					KeyID:            rec.KeyID,
 					Outcome:          rec.Outcome,
 					StatusCode:       statusCode,
+					StatusVariant:    historyStatusBadgeVariant(statusCode),
 					PromptTokens:     rec.InputTokens,
 					CompletionTokens: rec.OutputTokens,
 					LatencyMs:        rec.Latency.Milliseconds(),
+					Attempts:         attempts,
 				})
 			}
 		}
@@ -1296,8 +1340,70 @@ func (h *DashboardHandler) handleHistoryView(w http.ResponseWriter, r *http.Requ
 	Layout("History", "history", h.deps.PasswordStore.IsDefaultPassword(), HistoryPage(data)).Render(r.Context(), w)
 }
 
+func (h *DashboardHandler) handleHistoryDetailView(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Redirect(w, r, "/dashboard/history", http.StatusSeeOther)
+		return
+	}
+
+	if h.deps.HistoryQuerier == nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		Layout("History Details", "history", h.deps.PasswordStore.IsDefaultPassword(), HistoryDetailNotFoundPage(id)).Render(r.Context(), w)
+		return
+	}
+
+	rec, found, err := h.deps.HistoryQuerier.Get(r.Context(), id)
+	if err != nil || !found {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		Layout("History Details", "history", h.deps.PasswordStore.IsDefaultPassword(), HistoryDetailNotFoundPage(id)).Render(r.Context(), w)
+		return
+	}
+
+	attempts := decodeAttempts(rec.Attempts)
+	statusCode := deriveStatusCode(rec.Outcome, attempts)
+	statusVariant := historyStatusBadgeVariant(statusCode)
+
+	data := HistoryDetailPageData{
+		ID:                    rec.ID,
+		Timestamp:             rec.Timestamp.Local().Format("Jan 2, 2006 15:04:05"),
+		TimestampUTC:          rec.Timestamp.UTC().Format("2006-01-02 15:04:05 MST"),
+		Provider:              rec.Provider,
+		ModelReq:              rec.ModelReq,
+		ModelServed:           rec.ModelServed,
+		KeyID:                 rec.KeyID,
+		Session:               rec.Session,
+		Endpoint:              rec.Endpoint,
+		Stream:                rec.Stream,
+		Outcome:               rec.Outcome,
+		StatusCode:            statusCode,
+		StatusVariant:         statusVariant,
+		InputTokens:           rec.InputTokens,
+		OutputTokens:          rec.OutputTokens,
+		CacheReadTokens:       rec.CacheReadTokens,
+		CacheCreationTokens:   rec.CacheCreationTokens,
+		TotalTokens:           rec.InputTokens + rec.OutputTokens + rec.CacheReadTokens + rec.CacheCreationTokens,
+		LatencyMs:             rec.Latency.Milliseconds(),
+		Attempts:              attempts,
+		RequestBody:           formatBodyPane(rec.RequestBody),
+		TranslatedRequestBody: formatBodyPane(rec.TranslatedRequestBody),
+		RawResponseBody:       formatBodyPane(rec.RawResponseBody),
+		ResponseBody:          formatBodyPane(rec.ResponseBody),
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	Layout("History Details", "history", h.deps.PasswordStore.IsDefaultPassword(), HistoryDetailPage(data)).Render(r.Context(), w)
+}
+
 func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request) {
-	data := KeysPageData{}
+	data := KeysPageData{
+		Error:      r.URL.Query().Get("error"),
+		Flash:      r.URL.Query().Get("flash"),
+		ListenAddr: h.deps.Service.Listen,
+	}
+	if data.ListenAddr == "" {
+		data.ListenAddr = "127.0.0.1:8787"
+	}
 	var lastUsedMap map[string]time.Time
 	if h.deps.HistoryQuerier != nil {
 		lastUsedMap, _ = h.deps.HistoryQuerier.LastUseByKey(r.Context())
@@ -1306,7 +1412,11 @@ func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request
 	if h.deps.KeyWatcher != nil {
 		ks := h.deps.KeyWatcher.Get()
 		if ks != nil {
+			now := time.Now()
 			for _, k := range ks.Keys() {
+				if k.Disabled {
+					continue
+				}
 				masked := k.Prefix
 				if masked == "" {
 					masked = "tr_live_..."
@@ -1314,8 +1424,30 @@ func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request
 					masked = "tr_live_" + masked + "..."
 				}
 				rateStr := "Unlimited"
+				var rateReqs int
+				var rateIntv string
+				rateIntvVal := 1
+				rateIntvUnit := "m"
 				if k.Rate != nil {
-					rateStr = fmt.Sprintf("%d req / %s", k.Rate.Requests, k.Rate.Interval)
+					rateStr = fmt.Sprintf("%d / %s", k.Rate.Requests, k.Rate.Interval)
+					rateReqs = k.Rate.Requests
+					rateIntv = k.Rate.Interval
+					if len(rateIntv) >= 2 {
+						unit := rateIntv[len(rateIntv)-1:]
+						valStr := rateIntv[:len(rateIntv)-1]
+						if v, err := strconv.Atoi(valStr); err == nil && v > 0 {
+							rateIntvVal = v
+							rateIntvUnit = unit
+						}
+					}
+				}
+				expiresStr := "Never"
+				if k.Expires != nil {
+					expiresStr = k.Expires.Format("2006-01-02 15:04")
+				}
+				status := "active"
+				if k.Expires != nil && now.After(*k.Expires) {
+					status = "inactive"
 				}
 				lastUsed := "Never"
 				if lastUsedMap != nil {
@@ -1324,11 +1456,20 @@ func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request
 					}
 				}
 				data.Keys = append(data.Keys, KeyItem{
-					ID:       k.ID,
-					Masked:   masked,
-					Scopes:   k.Allow,
-					RateSpec: rateStr,
-					LastUsed: lastUsed,
+					ID:           k.ID,
+					Name:         k.Name,
+					Prefix:       k.Prefix,
+					Masked:       masked,
+					Secret:       k.Secret,
+					RateSpec:     rateStr,
+					RateReqs:     rateReqs,
+					RateIntv:     rateIntv,
+					RateIntvVal:  rateIntvVal,
+					RateIntvUnit: rateIntvUnit,
+					Expires:      expiresStr,
+					ExpiresAt:    k.Expires,
+					Status:       status,
+					LastUsed:     lastUsed,
 				})
 			}
 			sort.Slice(data.Keys, func(i, j int) bool {
@@ -1341,13 +1482,239 @@ func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request
 	Layout("API Keys", "keys", h.deps.PasswordStore.IsDefaultPassword(), KeysPage(data)).Render(r.Context(), w)
 }
 
-func (h *DashboardHandler) handleSettingsView(w http.ResponseWriter, r *http.Request) {
-	flash := r.URL.Query().Get("flash")
-	errStr := r.URL.Query().Get("error")
-	data := SettingsPageData{
-		Flash: flash,
-		Error: errStr,
+func (h *DashboardHandler) getKeysPath() string {
+	if h.deps.Service.KeysPath != "" {
+		return h.deps.Service.KeysPath
 	}
+	if svc, err := config.LoadService(); err == nil && svc.KeysPath != "" {
+		return svc.KeysPath
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".tinyroute", "keys.json")
+}
+
+func parseExpiryFromForm(r *http.Request) (*time.Time, bool, error) {
+	choice := r.FormValue("expiry_choice")
+	switch choice {
+	case "never":
+		return nil, true, nil
+	case "7d":
+		exp := time.Now().Add(7 * 24 * time.Hour).UTC()
+		return &exp, false, nil
+	case "30d":
+		exp := time.Now().Add(30 * 24 * time.Hour).UTC()
+		return &exp, false, nil
+	case "custom":
+		daysStr := strings.TrimSpace(r.FormValue("expiry_days"))
+		if daysStr != "" {
+			days, err := strconv.Atoi(daysStr)
+			if err != nil || days <= 0 {
+				return nil, false, fmt.Errorf("Expiry days must be a positive integer")
+			}
+			exp := time.Now().Add(time.Duration(days) * 24 * time.Hour).UTC()
+			return &exp, false, nil
+		}
+		customVal := strings.TrimSpace(r.FormValue("expiry_custom"))
+		if customVal != "" {
+			var exp time.Time
+			var err error
+			if exp, err = time.ParseInLocation("2006-01-02T15:04", customVal, time.Local); err != nil {
+				if exp, err = time.Parse(time.RFC3339, customVal); err != nil {
+					return nil, false, fmt.Errorf("Invalid expiry date format")
+				}
+			}
+			expUTC := exp.UTC()
+			if !expUTC.After(time.Now()) {
+				return nil, false, fmt.Errorf("Expiry must be in the future")
+			}
+			return &expUTC, false, nil
+		}
+		return nil, false, fmt.Errorf("Custom expiry days or date must be provided")
+	default:
+		return nil, false, nil
+	}
+}
+
+func parseRateSpecFromForm(r *http.Request) (*auth.RateSpec, bool, error) {
+	hasRateSection := r.Form.Has("rate_section_present") || r.Form.Has("enable_rate")
+	enableRate := r.FormValue("enable_rate") == "true"
+	clearRate := r.FormValue("clear_rate") == "true" || (hasRateSection && !enableRate)
+
+	if clearRate {
+		return nil, true, nil
+	}
+
+	reqsStr := strings.TrimSpace(r.FormValue("rate_requests"))
+	intvValStr := strings.TrimSpace(r.FormValue("rate_interval_val"))
+	intvUnitStr := strings.TrimSpace(r.FormValue("rate_interval_unit"))
+	intvStr := strings.TrimSpace(r.FormValue("rate_interval"))
+
+	if reqsStr == "" && intvStr == "" && intvValStr == "" {
+		if hasRateSection && enableRate {
+			return nil, false, fmt.Errorf("Rate limit requests must be specified")
+		}
+		return nil, false, nil
+	}
+
+	reqs, err := strconv.Atoi(reqsStr)
+	if err != nil || reqs <= 0 {
+		return nil, false, fmt.Errorf("Rate limit requests must be a positive integer")
+	}
+
+	finalIntv := ""
+	if intvValStr != "" && intvUnitStr != "" {
+		v, err := strconv.Atoi(intvValStr)
+		if err != nil || v <= 0 {
+			return nil, false, fmt.Errorf("Rate limit interval value must be a positive integer")
+		}
+		switch intvUnitStr {
+		case "s", "m", "h":
+			finalIntv = fmt.Sprintf("%d%s", v, intvUnitStr)
+		case "d":
+			finalIntv = fmt.Sprintf("%dh", v*24)
+		default:
+			return nil, false, fmt.Errorf("Invalid rate limit interval unit")
+		}
+	} else if intvStr != "" {
+		finalIntv = intvStr
+	} else {
+		finalIntv = "1m"
+	}
+
+	if _, err := time.ParseDuration(finalIntv); err != nil {
+		return nil, false, fmt.Errorf("Invalid rate limit interval format (e.g. 1m, 1h)")
+	}
+
+	return &auth.RateSpec{
+		Requests: reqs,
+		Interval: finalIntv,
+	}, false, nil
+}
+
+func (h *DashboardHandler) handleKeyCreate(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Key name is required"), http.StatusSeeOther)
+		return
+	}
+
+	var opts []auth.KeyOpt
+	exp, _, err := parseExpiryFromForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	if exp != nil {
+		opts = append(opts, auth.WithExpires(exp))
+	}
+
+	rate, _, err := parseRateSpecFromForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	if rate != nil {
+		opts = append(opts, auth.WithRate(rate))
+	}
+
+	h.keysMu.Lock()
+	defer h.keysMu.Unlock()
+
+	keysPath := h.getKeysPath()
+	kf := auth.KeyFile{}
+	if data, err := os.ReadFile(keysPath); err == nil {
+		_ = json.Unmarshal(data, &kf)
+	}
+
+	_, key, err := auth.GenerateKey(name, opts...)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Generate key failed: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	kf.Keys = append(kf.Keys, key)
+	if err := auth.WriteKeyFile(keysPath, kf); err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Failed to write keys file: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/keys?flash="+url.QueryEscape("Key '"+key.Name+"' created successfully"), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/keys/")
+		id = strings.TrimSuffix(id, "/update")
+		id = strings.Trim(id, "/")
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Key name is required"), http.StatusSeeOther)
+		return
+	}
+
+	upd := auth.KeyUpdate{
+		Name: &name,
+	}
+
+	exp, clearExp, err := parseExpiryFromForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	if clearExp {
+		upd.ClearExpires = true
+	} else if exp != nil {
+		upd.Expires = exp
+	}
+
+	rate, clearRate, err := parseRateSpecFromForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	if clearRate {
+		upd.ClearRate = true
+	} else if rate != nil {
+		upd.Rate = rate
+	}
+
+	h.keysMu.Lock()
+	defer h.keysMu.Unlock()
+
+	keysPath := h.getKeysPath()
+	if err := auth.UpdateKey(keysPath, id, upd); err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Update key failed: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/keys?flash="+url.QueryEscape("Key updated successfully"), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleKeyRevoke(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/keys/")
+		id = strings.TrimSuffix(id, "/revoke")
+		id = strings.Trim(id, "/")
+	}
+
+	h.keysMu.Lock()
+	defer h.keysMu.Unlock()
+
+	keysPath := h.getKeysPath()
+	if err := auth.RevokeKey(keysPath, id); err != nil {
+		http.Redirect(w, r, "/dashboard/keys?error="+url.QueryEscape("Revoke key failed: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/keys?flash="+url.QueryEscape("Key revoked successfully"), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleSettingsView(w http.ResponseWriter, r *http.Request) {
+	data := SettingsPageData{}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	Layout("Settings", "settings", h.deps.PasswordStore.IsDefaultPassword(), SettingsPage(data)).Render(r.Context(), w)
 }
@@ -1378,4 +1745,374 @@ func (h *DashboardHandler) handlePasswordChange(w http.ResponseWriter, r *http.R
 	}
 
 	http.Redirect(w, r, "/dashboard/settings?flash="+url.QueryEscape("Dashboard password updated successfully!"), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleClientsView(w http.ResponseWriter, r *http.Request) {
+	all := clients.All()
+	cards := make([]ClientCard, len(all))
+	for i, c := range all {
+		cards[i] = buildClientCard(c)
+	}
+
+	data := ClientsPageData{
+		Clients: cards,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = Layout("Clients", "clients", h.deps.PasswordStore.IsDefaultPassword(), viewClients(data)).Render(r.Context(), w)
+}
+
+func (h *DashboardHandler) handleClientDetailView(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/clients/")
+		id = strings.Trim(id, "/")
+	}
+
+	c, ok := clients.Get(id)
+	if !ok {
+		http.Redirect(w, r, "/dashboard/clients", http.StatusSeeOther)
+		return
+	}
+
+	st, _ := c.Detect()
+
+	listen := h.deps.Service.Listen
+	if listen == "" {
+		listen = "127.0.0.1:8080"
+	}
+
+	defaultBaseURL := clients.DialectBaseURL(listen, c.Dialect())
+	endpoints := []ClientEndpointOption{
+		{URL: defaultBaseURL, IsDefault: true},
+		{URL: clients.DialectBaseURL(listen, "anthropic")},
+		{URL: clients.DialectBaseURL(listen, "openai")},
+		{URL: clients.DialectBaseURL(listen, "gemini")},
+	}
+	seenEP := map[string]bool{}
+	var uniqueEPs []ClientEndpointOption
+	for _, ep := range endpoints {
+		if !seenEP[ep.URL] {
+			seenEP[ep.URL] = true
+			if st.CurrentBaseURL == ep.URL {
+				ep.IsCurrent = true
+			}
+			uniqueEPs = append(uniqueEPs, ep)
+		}
+	}
+
+	routableModels := clients.DiscoverModelsForDialect(c.Dialect())
+	if len(routableModels) == 0 {
+		routableModels = []string{"gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude-3-7-sonnet", "gemini-2.5-flash"}
+	}
+
+	card := buildClientCard(c)
+
+	snippet := fmt.Sprintf("export ANTHROPIC_BASE_URL=%s\nexport ANTHROPIC_AUTH_TOKEN=tr_live_YOUR_KEY", defaultBaseURL)
+
+	// Existing keys are offered in the "Provide Key" dropdown. Only keys with a
+	// recoverable secret are listed, since selecting one embeds that secret into
+	// the client config.
+	existingKeys := []ExistingKeyOption{}
+	legacyKeyCount := 0
+	selectedKeyID := ""
+	if h.deps.KeyWatcher != nil {
+		if ks := h.deps.KeyWatcher.Get(); ks != nil {
+			if st.RawKey != "" {
+				if matchedKey, ok := ks.LookupByToken(st.RawKey); ok {
+					selectedKeyID = matchedKey.ID
+				}
+			}
+			for _, k := range ks.Keys() {
+				if k.Disabled {
+					continue
+				}
+				if k.Secret == "" {
+					// Minted before secrets were persisted — cannot be embedded.
+					legacyKeyCount++
+					continue
+				}
+				masked := k.Prefix
+				if masked == "" {
+					masked = "tr_live_..."
+				} else {
+					masked = "tr_live_" + masked + "..."
+				}
+				name := k.Name
+				if name == "" {
+					name = k.ID
+				}
+				existingKeys = append(existingKeys, ExistingKeyOption{
+					ID:    k.ID,
+					Label: name + " (" + masked + ")",
+				})
+			}
+			sort.Slice(existingKeys, func(i, j int) bool {
+				return existingKeys[i].Label < existingKeys[j].Label
+			})
+		}
+	}
+
+	data := ClientDetailPageData{
+		Client:              c,
+		ClientID:            c.ID(),
+		ClientName:          c.Name(),
+		Dialect:             c.Dialect(),
+		Status:              st,
+		StatusBadgeClass:    card.StatusBadgeClass,
+		StatusLabel:         card.StatusLabel,
+		CurrentEndpoint:     st.CurrentBaseURL,
+		DefaultEndpoint:     defaultBaseURL,
+		Endpoints:           uniqueEPs,
+		MaskedKey:           st.MaskedKey,
+		RoutableModels:      routableModels,
+		ProviderModelGroups: groupModelsByProvider(routableModels),
+		SlotValues:          st.SlotValues,
+		ModelSlots:          c.ModelSlots(),
+		ExistingKeys:        existingKeys,
+		SelectedKeyID:       selectedKeyID,
+		LegacyKeyCount:      legacyKeyCount,
+		ManualSnippet:       snippet,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = Layout(c.Name()+" - Clients", "clients", h.deps.PasswordStore.IsDefaultPassword(), viewClientDetail(data)).Render(r.Context(), w)
+}
+
+// resolveExistingKey looks up a key by id and returns its recoverable secret,
+// so the dashboard's "Provide Key" dropdown can embed an existing key into a
+// client config. Returns ok=false when the store is unavailable, the id is
+// unknown, or the key has no persisted secret (e.g. created before recovery).
+func (h *DashboardHandler) resolveExistingKey(keyID string) (string, bool) {
+	if keyID == "" || h.deps.KeyWatcher == nil {
+		return "", false
+	}
+	ks := h.deps.KeyWatcher.Get()
+	if ks == nil {
+		return "", false
+	}
+	k, ok := ks.Lookup(keyID)
+	if !ok || k.Disabled || k.Secret == "" {
+		return "", false
+	}
+	return k.Secret, true
+}
+
+func (h *DashboardHandler) handleClientPlan(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/clients/")
+		id = strings.TrimSuffix(id, "/plan")
+		id = strings.Trim(id, "/")
+	}
+
+	c, ok := clients.Get(id)
+	if !ok {
+		http.Error(w, "unknown client", http.StatusNotFound)
+		return
+	}
+
+	baseURL := r.FormValue("base_url")
+	keyStrategyStr := r.FormValue("key_strategy")
+	apiKey := r.FormValue("api_key")
+	keyName := r.FormValue("key_name")
+
+	// "Provide Key" via the existing-key dropdown: resolve the selected key's
+	// recoverable secret so the installer can embed it as a reused key.
+	existingKey := r.FormValue("existing_key")
+	if apiKey == "" && existingKey != "" {
+		if secret, ok := h.resolveExistingKey(existingKey); ok {
+			apiKey = secret
+		}
+	}
+	if apiKey == "" && (keyStrategyStr == "reuse" || keyStrategyStr == "") {
+		st, _ := c.Detect()
+		if st.RawKey != "" {
+			apiKey = st.RawKey
+		}
+	}
+
+	keyStrategy := clients.KeyStrategy(keyStrategyStr)
+	if keyStrategy == "" {
+		if apiKey != "" {
+			keyStrategy = clients.KeyStrategyReuse
+		} else {
+			keyStrategy = clients.KeyStrategyMint
+		}
+	}
+
+	slotValues := make(map[string]string)
+	for _, slot := range c.ModelSlots() {
+		val := r.FormValue("slot_" + slot.ID)
+		if val != "" {
+			slotValues[slot.ID] = val
+		}
+	}
+	if slotValues["model"] == "" {
+		if val := r.FormValue("slot_models"); val != "" {
+			slotValues["model"] = val
+		} else if val := r.FormValue("model"); val != "" {
+			slotValues["model"] = val
+		}
+	}
+	if slotValues["models"] == "" {
+		if val := r.FormValue("slot_model"); val != "" {
+			slotValues["models"] = val
+		}
+	}
+
+	listen := h.deps.Service.Listen
+	installer := clients.NewInstaller(listen, h.deps.Service.KeysPath)
+
+	primaryModelPlan := slotValues["model"]
+	if primaryModelPlan == "" {
+		primaryModelPlan = slotValues["models"]
+	}
+
+	plan, err := installer.Plan(clients.InstallRequest{
+		ClientID:    id,
+		BaseURL:     baseURL,
+		APIKey:      apiKey,
+		KeyStrategy: keyStrategy,
+		KeyName:     keyName,
+		Model:       primaryModelPlan,
+		ModelSlots:  slotValues,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(plan)
+}
+
+func (h *DashboardHandler) handleClientApply(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/clients/")
+		id = strings.TrimSuffix(id, "/apply")
+		id = strings.Trim(id, "/")
+	}
+
+	c, ok := clients.Get(id)
+	if !ok {
+		http.Redirect(w, r, "/dashboard/clients", http.StatusSeeOther)
+		return
+	}
+
+	baseURL := r.FormValue("base_url")
+	keyStrategyStr := r.FormValue("key_strategy")
+	apiKey := r.FormValue("api_key")
+	keyName := r.FormValue("key_name")
+
+	// "Provide Key" via the existing-key dropdown: resolve the selected key's
+	// recoverable secret so the installer can embed it as a reused key.
+	existingKey := r.FormValue("existing_key")
+	if apiKey == "" && existingKey != "" {
+		if secret, ok := h.resolveExistingKey(existingKey); ok {
+			apiKey = secret
+		}
+	}
+	if apiKey == "" && (keyStrategyStr == "reuse" || keyStrategyStr == "") {
+		st, _ := c.Detect()
+		if st.RawKey != "" {
+			apiKey = st.RawKey
+		}
+	}
+
+	keyStrategy := clients.KeyStrategy(keyStrategyStr)
+	if keyStrategy == "" {
+		if apiKey != "" {
+			keyStrategy = clients.KeyStrategyReuse
+		} else {
+			keyStrategy = clients.KeyStrategyMint
+		}
+	}
+
+	slotValues := make(map[string]string)
+	for _, slot := range c.ModelSlots() {
+		val := r.FormValue("slot_" + slot.ID)
+		if val != "" {
+			slotValues[slot.ID] = val
+		}
+	}
+	if slotValues["model"] == "" {
+		if val := r.FormValue("slot_models"); val != "" {
+			slotValues["model"] = val
+		} else if val := r.FormValue("model"); val != "" {
+			slotValues["model"] = val
+		}
+	}
+	if slotValues["models"] == "" {
+		if val := r.FormValue("slot_model"); val != "" {
+			slotValues["models"] = val
+		}
+	}
+
+	listen := h.deps.Service.Listen
+	installer := clients.NewInstaller(listen, h.deps.Service.KeysPath)
+
+	primaryModelApply := slotValues["model"]
+	if primaryModelApply == "" {
+		primaryModelApply = slotValues["models"]
+	}
+
+	plan, err := installer.Plan(clients.InstallRequest{
+		ClientID:    id,
+		BaseURL:     baseURL,
+		APIKey:      apiKey,
+		KeyStrategy: keyStrategy,
+		KeyName:     keyName,
+		Model:       primaryModelApply,
+		ModelSlots:  slotValues,
+	})
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/clients/"+id+"?error="+url.QueryEscape("Failed to plan install: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	res, err := installer.Apply(plan)
+	if err != nil {
+		http.Redirect(w, r, "/dashboard/clients/"+id+"?error="+url.QueryEscape("Failed to apply configuration: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	if plan.KeyStrategy == clients.KeyStrategyMint && res.Key != "" {
+		st, _ := c.Detect()
+		revealData := KeyRevealPageData{
+			ClientName: c.Name(),
+			ClientID:   c.ID(),
+			MintedKey:  res.Key,
+			BaseURL:    plan.BaseURL,
+			ConfigPath: st.ConfigPath,
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = Layout("Key Minted - "+c.Name(), "clients", h.deps.PasswordStore.IsDefaultPassword(), viewKeyReveal(revealData)).Render(r.Context(), w)
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/clients/"+id+"?flash="+url.QueryEscape("Successfully configured "+c.Name()+"!"), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleClientReset(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/dashboard/clients/")
+		id = strings.TrimSuffix(id, "/reset")
+		id = strings.Trim(id, "/")
+	}
+
+	c, ok := clients.Get(id)
+	if !ok {
+		http.Redirect(w, r, "/dashboard/clients", http.StatusSeeOther)
+		return
+	}
+
+	if err := c.Reset(); err != nil {
+		http.Redirect(w, r, "/dashboard/clients/"+id+"?error="+url.QueryEscape("Failed to reset client config: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard/clients/"+id+"?flash="+url.QueryEscape("Successfully reset "+c.Name()+" configuration!"), http.StatusSeeOther)
 }

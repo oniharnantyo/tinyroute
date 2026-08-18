@@ -2,6 +2,10 @@ package dashboard
 
 import (
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/table"
 )
 
 type RouteItem struct {
@@ -17,46 +21,64 @@ type RoutesPageData struct {
 templ RoutesPage(data RoutesPageData) {
 	<div class="space-y-6">
 		<div>
-			<h2 class="text-xl font-bold tracking-tight text-white">Routing Strategy</h2>
-			<p class="text-xs text-slate-400">Model fallback chains and outbound provider translation mapping</p>
+			<h2 class="text-xl font-bold tracking-tight text-foreground">Routing Strategy</h2>
+			<p class="text-xs text-muted-foreground">Model fallback chains and outbound provider translation mapping</p>
 		</div>
 
 		if len(data.Routes) == 0 {
-			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-12 text-center space-y-2">
-				<p class="text-xs text-slate-400">No custom routes defined. Standard wildcard matching is in effect.</p>
-			</div>
+			@empty.Empty() {
+				@empty.Header() {
+					@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+						@icon.Route()
+					}
+					@empty.Title() { No custom routes defined }
+					@empty.Description() { Standard wildcard matching is in effect across all connected providers. }
+				}
+			}
 		} else {
-			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+			@card.Card() {
 				<div class="overflow-x-auto">
-					<table class="w-full text-left border-collapse text-xs">
-						<thead>
-							<tr class="border-b border-slate-800 text-slate-400 font-medium uppercase tracking-wider">
-								<th class="py-3 px-4">From Dialect</th>
-								<th class="py-3 px-4">Match Pattern</th>
-								<th class="py-3 px-4">Fallback Chain Hops</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-slate-800/60 font-mono">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									From Dialect
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Match Pattern
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Fallback Chain Hops
+								}
+							}
+						}
+						@table.Body(table.BodyProps{Class: "font-mono text-xs"}) {
 							for _, r := range data.Routes {
-								<tr class="hover:bg-slate-800/30 transition-colors">
-									<td class="py-3.5 px-4 font-bold text-indigo-300">{ r.From }</td>
-									<td class="py-3.5 px-4 text-slate-200">{ r.Match }</td>
-									<td class="py-3.5 px-4">
+								@table.Row() {
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 font-bold text-foreground font-sans"}) {
+										{ r.From }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 text-foreground/90 font-mono"}) {
+										{ r.Match }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4"}) {
 										<div class="flex items-center space-x-2 flex-wrap gap-y-1">
 											for i, hop := range r.Chain {
-												<span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 text-[11px] font-medium">{ hop }</span>
+												@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusNeutral}) {
+													{ hop }
+												}
 												if i < len(r.Chain)-1 {
-													@components.Icon("arrow-right", "w-3.5 h-3.5 text-slate-600 shrink-0")
+													@icon.ArrowRight(icon.Props{Class: "size-3.5 text-muted-foreground shrink-0"})
 												}
 											}
 										</div>
-									</td>
-								</tr>
+									}
+								}
 							}
-						</tbody>
-					</table>
+						}
+					}
 				</div>
-			</div>
+			}
 		}
 	</div>
 }

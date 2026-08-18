@@ -1,7 +1,0 @@
-{
-  "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/oniharnantyo/projects/tinyroute/internal/core/failure.go\"}",
-  "error": "File does not exist. Note: your current working directory is /Users/oniharnantyo/projects/tinyroute.",
-  "timestamp": "2026-08-03T13:24:57.115Z",
-  "retry_count": 2
-}

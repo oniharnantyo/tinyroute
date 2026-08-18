@@ -24,6 +24,35 @@ func TwMerge(classes ...string) string {
 	return twmerge.Merge(classes...)
 }
 
+// CN combines class names, filtering out empty values and resolving Tailwind
+// conflicts. Intended for component class merging with an optional override.
+// Example: CN("bg-red-500 p-2", "", "bg-green-500", map[string]bool{"hidden": isHidden}) → "p-2 bg-green-500"
+func CN(classes ...any) string {
+	var out []string
+	for _, v := range classes {
+		switch t := v.(type) {
+		case nil:
+		case string:
+			if t != "" {
+				out = append(out, t)
+			}
+		case []string:
+			for _, c := range t {
+				if c != "" {
+					out = append(out, c)
+				}
+			}
+		case map[string]bool:
+			for c, on := range t {
+				if on && c != "" {
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	return twmerge.Merge(out...)
+}
+
 // If returns value if condition is true, otherwise the zero value of T.
 // Example: true, "bg-red-500" → "bg-red-500"
 func If[T any](condition bool, value T) T {

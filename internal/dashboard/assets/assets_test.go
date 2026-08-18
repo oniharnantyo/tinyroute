@@ -12,6 +12,11 @@ func TestAssetsEmbedding(t *testing.T) {
 		t.Errorf("expected non-empty styles.css: %v", err)
 	}
 
+	filterJS, err := ReadFile("filter.js")
+	if err != nil || len(filterJS) == 0 {
+		t.Errorf("expected non-empty filter.js: %v", err)
+	}
+
 	anthropicLogo, ok := LogoSVG("anthropic")
 	if !ok || len(anthropicLogo) == 0 {
 		t.Errorf("expected anthropic.svg to be embedded")

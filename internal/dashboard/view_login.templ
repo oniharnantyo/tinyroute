@@ -1,50 +1,76 @@
 package dashboard
 
-import "github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
+)
 
 templ Login(errorMsg string) {
 	<!DOCTYPE html>
-	<html lang="en" class="h-full bg-slate-950">
+	<html lang="en" class="h-full dark">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>Login - tinyroute Dashboard</title>
 			<link rel="stylesheet" href="/dashboard/assets/styles.css"/>
+			@input.Script()
 		</head>
-		<body class="h-full flex items-center justify-center p-4 bg-gradient-to-tr from-slate-950 via-slate-900 to-indigo-950/40 text-slate-100 antialiased">
-			<div class="w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
-				<div class="text-center space-y-2">
-					<div class="inline-flex p-3 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/30 mb-2 shadow-inner">
-						@components.Icon("split", "w-8 h-8")
-					</div>
-					<h1 class="text-2xl font-bold tracking-tight text-white">tinyroute dashboard</h1>
-					<p class="text-xs text-slate-400">Enter your management password to continue</p>
-				</div>
-
-				if errorMsg != "" {
-					<div class="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2.5">
-						@components.Icon("x-circle", "w-4 h-4 text-rose-400 shrink-0")
-						<span>{ errorMsg }</span>
-					</div>
-				}
-
-				<form method="POST" action="/dashboard/login" class="space-y-4">
-					<div class="space-y-1.5">
-						<label for="password" class="block text-xs font-medium text-slate-300">Password</label>
-						<div class="relative">
-							<input type="password" id="password" name="password" required autofocus placeholder="••••••••" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"/>
+		<body class="h-full flex items-center justify-center p-4 bg-background text-foreground antialiased">
+			<div class="w-full max-w-md">
+				@card.Card(card.Props{Class: "shadow-xl border-border bg-card"}) {
+					@card.Header(card.HeaderProps{Class: "text-center space-y-2 pb-4"}) {
+						<div class="mx-auto inline-flex p-3 bg-primary/10 text-primary rounded-2xl border border-primary/20 mb-2">
+							@icon.Route(icon.Props{Class: "w-8 h-8"})
 						</div>
-					</div>
+						@card.Title(card.TitleProps{Class: "text-2xl font-bold tracking-tight text-foreground"}) {
+							tinyroute dashboard
+						}
+						@card.Description(card.DescriptionProps{Class: "text-xs text-muted-foreground"}) {
+							Enter your management password to continue
+						}
+					}
+					@card.Content(card.ContentProps{Class: "space-y-4 pt-0"}) {
+						if errorMsg != "" {
+							@components.AlertBanner(components.AlertBannerProps{
+								Variant:     components.AlertError,
+								Title:       "Authentication Failed",
+								Description: errorMsg,
+							})
+						}
 
-					<button type="submit" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
-						<span>Sign In</span>
-						@components.Icon("arrow-right", "w-4 h-4")
-					</button>
-				</form>
+						<form method="POST" action="/dashboard/login" class="space-y-4">
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "password", Class: "text-xs font-medium text-foreground"}) {
+									Password
+								}
+								@input.Input(input.Props{
+									ID:          "password",
+									Name:        "password",
+									Type:        input.TypePassword,
+									Placeholder: "••••••••",
+									Required:    true,
+									Attributes:  templ.Attributes{"autofocus": "autofocus"},
+								})
+							</div>
 
-				<div class="text-center pt-2 border-t border-slate-800/60">
-					<p class="text-[11px] text-slate-500">Default password is <code class="px-1.5 py-0.5 bg-slate-950 rounded border border-slate-800 text-slate-400 font-mono">123456</code></p>
-				</div>
+							@button.Button(button.Props{
+								Type:      button.TypeSubmit,
+								FullWidth: true,
+								Class:     "shadow-sm",
+							}) {
+								<span>Sign In</span>
+								@icon.ArrowRight(icon.Props{Class: "size-4"})
+							}
+						</form>
+					}
+					@card.Footer(card.FooterProps{Class: "justify-center border-t border-border pt-4 pb-4"}) {
+						<p class="text-xs text-muted-foreground">Default password is <code class="px-1.5 py-0.5 bg-muted rounded border border-border text-foreground font-mono">123456</code></p>
+					}
+				}
 			</div>
 		</body>
 	</html>

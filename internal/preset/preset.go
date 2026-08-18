@@ -3,6 +3,7 @@ package preset
 import (
 	_ "embed"
 	"encoding/json"
+	"os"
 	"strings"
 
 	"github.com/oniharnantyo/tinyroute/internal/credential"
@@ -68,12 +69,18 @@ func Get(name string) *Preset {
 		norm = "opencodezen"
 	}
 	for _, p := range All() {
-		if p.Name == name {
+		if p.Name == name || normalizeName(p.Name) == norm {
 			cp := p
-			return &cp
-		}
-		if normalizeName(p.Name) == norm {
-			cp := p
+			if strings.HasPrefix(cp.ClientID, "YOUR_") {
+				if val := os.Getenv(strings.TrimPrefix(cp.ClientID, "YOUR_")); val != "" {
+					cp.ClientID = val
+				}
+			}
+			if strings.HasPrefix(cp.ClientSecret, "YOUR_") {
+				if val := os.Getenv(strings.TrimPrefix(cp.ClientSecret, "YOUR_")); val != "" {
+					cp.ClientSecret = val
+				}
+			}
 			return &cp
 		}
 	}

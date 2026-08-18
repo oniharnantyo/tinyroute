@@ -5,11 +5,13 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
 )
 
-func TestIconRendering(t *testing.T) {
+func TestTypedIconRendering(t *testing.T) {
 	buf := new(bytes.Buffer)
-	err := Icon("cpu", "w-6 h-6").Render(context.Background(), buf)
+	err := icon.Cpu(icon.Props{Class: "w-6 h-6"}).Render(context.Background(), buf)
 	if err != nil {
 		t.Fatalf("failed to render icon: %v", err)
 	}
@@ -18,15 +20,15 @@ func TestIconRendering(t *testing.T) {
 	if !strings.Contains(out, "w-6 h-6") || !strings.Contains(out, "<svg") {
 		t.Errorf("unexpected icon rendering output: %s", out)
 	}
+}
 
-	// Test fallback icon
-	buf.Reset()
-	err = Icon("unknown-icon-name", "").Render(context.Background(), buf)
-	if err != nil {
-		t.Fatalf("failed to render fallback icon: %v", err)
+func TestUnknownIconNameReturnsError(t *testing.T) {
+	buf := new(bytes.Buffer)
+	err := icon.Icon("no-such-icon")(icon.Props{}).Render(context.Background(), buf)
+	if err == nil {
+		t.Error("expected error for unknown icon name, got nil")
 	}
-	out = buf.String()
-	if !strings.Contains(out, "w-5 h-5") {
-		t.Errorf("expected default class w-5 h-5, got %s", out)
+	if !strings.Contains(err.Error(), "no-such-icon") {
+		t.Errorf("error should name the unknown icon, got: %v", err)
 	}
 }

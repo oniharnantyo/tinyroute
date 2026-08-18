@@ -1,20 +1,22 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context (shown to AI when creating artifacts)
+context: |
+  tinyroute is a Go LLM API gateway. CLI: urfave/cli v3 + pterm TUI.
+  Dashboard: server-rendered HTML via templ, UI built exclusively from
+  shadcn-templ components in internal/dashboard/components/ (dialog, button,
+  input, select, badge, table, card, alert, toast, empty, dropdown, ...),
+  with behavior JS loaded as a single hashed bundle exposing window.tui.
+  Icons are SVG via the templ icon component (Lucide) — never emoji.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+# Per-artifact rules
+rules:
+  design:
+    - Dashboard UI must compose existing shadcn-templ components from internal/dashboard/components/; raw HTML or bespoke widgets are allowed only when no component fits, and design.md must record why
+    - User-visible feedback (success, error, info) must use the toast component (window.tui toast API) — never browser alert(), console-only messages, or ad-hoc inline banners; alert-banner is reserved for persistent page-level states
+  specs:
+    - Requirements touching dashboard UI must name the shadcn-templ component surface (e.g. "a toast notification via the toast component", "a confirmation dialog via dialog") instead of generic wording like "show a message"
+    - Notification scenarios must assert toast behavior (variant and copy), and that no plaintext secrets appear in toast content
+  tasks:
+    - UI tasks must name the shadcn-templ components they use (dialog, toast, select, table, ...) and never introduce parallel UI primitives
+    - Any task adding user feedback must wire it through the toast component / window.tui toast API

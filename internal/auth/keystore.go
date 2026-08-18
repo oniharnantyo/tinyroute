@@ -1,6 +1,9 @@
-// Package auth implements inbound API key management: generation, hashed
-// storage, verification, scoping, and expiry. Keys are never stored in
-// plaintext — only a sha256 digest and a short display prefix are persisted.
+// Package auth implements inbound API key management: generation, storage,
+// verification, and expiry. Each key persists its plaintext secret (so
+// it can be re-embedded into downstream client configs from the dashboard)
+// alongside a sha256 digest used for verification on the request path. The keys
+// file is written atomically with 0600 permissions; secrets must never be
+// logged or returned in error responses.
 package auth
 
 import (
@@ -11,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -24,20 +26,18 @@ const keyPrefix = "tr_live_"
 // into each generated key (before base64url encoding).
 const keyRandomBytes = 32
 
-// Key is a stored API key record. It never holds the plaintext credential —
-// only a sha256 digest and a short, non-secret display prefix.
+// Key is a stored API key record. It holds the plaintext credential (Secret)
+// so it can be re-embedded into downstream client configs, plus a sha256
+// digest used for verification without re-exposing the secret on the hot path.
 type Key struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
-	Prefix   string     `json:"prefix"` // first 4 chars after tr_live_, for display only
-	Digest   string     `json:"digest"` // sha256 hex digest of the full plaintext key
+	Prefix   string     `json:"prefix"`           // first 4 chars after tr_live_, for display only
+	Digest   string     `json:"digest"`           // sha256 hex digest of the full plaintext key
+	Secret   string     `json:"secret,omitempty"` // plaintext credential, for re-embedding into client configs
 	Created  time.Time  `json:"created"`
 	Expires  *time.Time `json:"expires,omitempty"`
 	Disabled bool       `json:"disabled,omitempty"`
-	// Allow is a list of "surface:model-glob" patterns. When non-empty, a
-	// request is permitted only if it matches at least one pattern. When
-	// empty, the key permits any configured route.
-	Allow []string `json:"allow,omitempty"`
 	// Rate is an optional request-rate limit for this key. The keystore
 	// itself does not enforce it; it is data consulted by the rate limiter.
 	Rate *RateSpec `json:"rate,omitempty"`
@@ -54,10 +54,62 @@ type KeyFile struct {
 	Keys []Key `json:"keys"`
 }
 
-// GenerateKey creates a new key with the given display name. It returns the
-// plaintext credential (which the caller MUST show to the user exactly once
-// and never persist) along with the Key record to store in keys.json.
-func GenerateKey(name string) (plaintext string, key Key, err error) {
+// KeyOpt configures optional settings when generating a new key.
+type KeyOpt func(*Key) error
+
+// WithExpires sets the expiration time for the generated key.
+// If expires is non-nil, it must be in the future.
+func WithExpires(expires *time.Time) KeyOpt {
+	return func(k *Key) error {
+		if expires != nil {
+			if !expires.After(time.Now()) {
+				return fmt.Errorf("auth: expiry must be in the future")
+			}
+			k.Expires = expires
+		}
+		return nil
+	}
+}
+
+// WithRate sets the rate limit spec for the generated key.
+// If rate is non-nil, requests must be positive and interval must parse with time.ParseDuration.
+func WithRate(rate *RateSpec) KeyOpt {
+	return func(k *Key) error {
+		if rate != nil {
+			if err := validateRateSpec(*rate); err != nil {
+				return err
+			}
+			k.Rate = rate
+		}
+		return nil
+	}
+}
+
+func validateRateSpec(r RateSpec) error {
+	if r.Requests <= 0 {
+		return fmt.Errorf("auth: rate requests must be positive")
+	}
+	d, err := time.ParseDuration(r.Interval)
+	if err != nil || d <= 0 {
+		return fmt.Errorf("auth: invalid rate interval: %q", r.Interval)
+	}
+	return nil
+}
+
+// KeyUpdate specifies changes to apply to an existing key.
+type KeyUpdate struct {
+	Name         *string
+	Expires      *time.Time
+	ClearExpires bool
+	Rate         *RateSpec
+	ClearRate    bool
+}
+
+// GenerateKey creates a new key with the given display name and optional configurations.
+// It returns the plaintext credential (to show the user once) along with the Key record to
+// store in keys.json. The plaintext is also persisted in Key.Secret so the key
+// can be re-embedded into downstream client configs from the dashboard.
+func GenerateKey(name string, opts ...KeyOpt) (plaintext string, key Key, err error) {
 	raw := make([]byte, keyRandomBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", Key{}, fmt.Errorf("auth: generate key: %w", err)
@@ -79,9 +131,96 @@ func GenerateKey(name string) (plaintext string, key Key, err error) {
 		Name:    name,
 		Prefix:  prefix,
 		Digest:  digest,
+		Secret:  plaintext,
 		Created: time.Now().UTC(),
 	}
+
+	for _, opt := range opts {
+		if err := opt(&key); err != nil {
+			return "", Key{}, err
+		}
+	}
+
 	return plaintext, key, nil
+}
+
+// UpdateKey loads the key file at filePath, applies name/expiry/rate changes to the key with id,
+// and writes the updated file back atomically using WriteKeyFile. The secret and digest are left untouched.
+func UpdateKey(filePath, id string, upd KeyUpdate) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("auth: read keys file: %w", err)
+	}
+	var kf KeyFile
+	if err := json.Unmarshal(data, &kf); err != nil {
+		return fmt.Errorf("auth: parse keys file: %w", err)
+	}
+
+	found := false
+	for i := range kf.Keys {
+		if kf.Keys[i].ID == id {
+			found = true
+			if upd.Name != nil {
+				if strings.TrimSpace(*upd.Name) == "" {
+					return fmt.Errorf("auth: key name cannot be empty")
+				}
+				kf.Keys[i].Name = *upd.Name
+			}
+			if upd.ClearExpires {
+				kf.Keys[i].Expires = nil
+			} else if upd.Expires != nil {
+				if !upd.Expires.After(time.Now()) {
+					return fmt.Errorf("auth: expiry must be in the future")
+				}
+				kf.Keys[i].Expires = upd.Expires
+			}
+			if upd.ClearRate {
+				kf.Keys[i].Rate = nil
+			} else if upd.Rate != nil {
+				if err := validateRateSpec(*upd.Rate); err != nil {
+					return err
+				}
+				kf.Keys[i].Rate = upd.Rate
+			}
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("auth: key %q not found", id)
+	}
+
+	return WriteKeyFile(filePath, kf)
+}
+
+// RevokeKey loads the key file at filePath, marks the key with id as Disabled=true,
+// and writes the updated file back atomically using WriteKeyFile.
+// Returns an error if the key does not exist or is already disabled.
+func RevokeKey(filePath, id string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("auth: read keys file: %w", err)
+	}
+	var kf KeyFile
+	if err := json.Unmarshal(data, &kf); err != nil {
+		return fmt.Errorf("auth: parse keys file: %w", err)
+	}
+
+	found := false
+	for i := range kf.Keys {
+		if kf.Keys[i].ID == id {
+			found = true
+			if kf.Keys[i].Disabled {
+				return fmt.Errorf("auth: key %q is already disabled", id)
+			}
+			kf.Keys[i].Disabled = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("auth: key %q not found", id)
+	}
+
+	return WriteKeyFile(filePath, kf)
 }
 
 // digestOf returns the sha256 hex digest of s.
@@ -118,13 +257,12 @@ func ParseKeyFile(data []byte) (KeyStore, error) {
 	return store, nil
 }
 
-// Verify checks a bearer credential against the stored keys and, if valid,
-// that it is scoped to permit the given surface and model. It returns the
-// key's identifier on success.
+// Verify checks a bearer credential against the stored keys.
+// It returns the key's identifier on success.
 //
 // Verify never mutates the KeyStore and performs no I/O, so expiry is
 // checked purely against the current time without requiring a file change.
-func (ks *KeyStore) Verify(token string, surface string, model string) (string, error) {
+func (ks *KeyStore) Verify(token string) (string, error) {
 	if ks == nil {
 		return "", fmt.Errorf("authentication required")
 	}
@@ -146,10 +284,6 @@ func (ks *KeyStore) Verify(token string, surface string, model string) (string, 
 		return "", fmt.Errorf("API key %q has expired", key.ID)
 	}
 
-	if len(key.Allow) > 0 && !matchesScope(key.Allow, surface, model) {
-		return "", fmt.Errorf("API key %q does not permit %s:%s", key.ID, surface, model)
-	}
-
 	return key.ID, nil
 }
 
@@ -166,6 +300,23 @@ func (ks *KeyStore) Lookup(id string) (Key, bool) {
 	return Key{}, false
 }
 
+// LookupByToken checks if token matches any stored key's digest or secret.
+func (ks *KeyStore) LookupByToken(token string) (Key, bool) {
+	if ks == nil || token == "" {
+		return Key{}, false
+	}
+	digest := digestOf(token)
+	if k, ok := ks.byDigest[digest]; ok {
+		return *k, true
+	}
+	for _, k := range ks.keys {
+		if k.Secret == token {
+			return k, true
+		}
+	}
+	return Key{}, false
+}
+
 // Keys returns all stored keys, e.g. for `tinyroute keys list`. The
 // returned slice must not be mutated.
 func (ks *KeyStore) Keys() []Key {
@@ -173,27 +324,6 @@ func (ks *KeyStore) Keys() []Key {
 		return nil
 	}
 	return ks.keys
-}
-
-// matchesScope reports whether surface and model match at least one
-// "surface:model-glob" pattern in allow. Surface matches exactly or via "*".
-// Model matches via path.Match glob semantics.
-func matchesScope(allow []string, surface, model string) bool {
-	for _, pattern := range allow {
-		pSurface, pModel, ok := strings.Cut(pattern, ":")
-		if !ok {
-			continue
-		}
-
-		if pSurface != "*" && pSurface != surface {
-			continue
-		}
-
-		if matched, _ := path.Match(pModel, model); matched {
-			return true
-		}
-	}
-	return false
 }
 
 // WriteKeyFile atomically writes kf to filePath using canonical

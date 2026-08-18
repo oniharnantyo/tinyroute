@@ -40,8 +40,12 @@ type Filter struct {
 	Cursor   string    // Opaque cursor from a previous page
 }
 
+// MaxListLimit is the maximum number of records that can be requested in a single List call.
+const MaxListLimit = 500
+
 // Querier provides read access to history summaries.
 type Querier interface {
+	Get(ctx context.Context, id string) (Summary, bool, error)
 	List(ctx context.Context, filter Filter) (rows []Summary, nextCursor string, err error)
 	LastUseByKey(ctx context.Context) (map[string]time.Time, error)
 }

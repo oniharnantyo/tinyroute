@@ -35,11 +35,101 @@ func decodeCursor(cursor string) (int64, string, error) {
 	return ts, parts[1], nil
 }
 
+// Get queries a single history record by ID, returning all columns including full bodies.
+// If the record is not found, it returns (history.Summary{}, false, nil).
+func (s *Store) Get(ctx context.Context, id string) (history.Summary, bool, error) {
+	query := `
+SELECT id, timestamp, provider, model_requested, model_served, key_id, session, endpoint,
+       stream, outcome, input_tokens, output_tokens, cache_read_tokens,
+       cache_creation_tokens, latency_ms, request_body, response_body, translated_request_body,
+       raw_response_body, attempts
+FROM requests
+WHERE id = ?;
+`
+	var sRow history.Summary
+	var tsMs int64
+	var streamInt int
+	var latencyMs sql.NullInt64
+	var provider, modelServed, keyID, session, endpoint sql.NullString
+	var reqBody, respBody, xlatedReqBody, rawRespBody, attempts sql.NullString
+
+	row := s.db.QueryRowContext(ctx, query, id)
+	err := row.Scan(
+		&sRow.ID,
+		&tsMs,
+		&provider,
+		&sRow.ModelReq,
+		&modelServed,
+		&keyID,
+		&session,
+		&endpoint,
+		&streamInt,
+		&sRow.Outcome,
+		&sRow.InputTokens,
+		&sRow.OutputTokens,
+		&sRow.CacheReadTokens,
+		&sRow.CacheCreationTokens,
+		&latencyMs,
+		&reqBody,
+		&respBody,
+		&xlatedReqBody,
+		&rawRespBody,
+		&attempts,
+	)
+	if err == sql.ErrNoRows {
+		return history.Summary{}, false, nil
+	}
+	if err != nil {
+		return history.Summary{}, false, fmt.Errorf("get history request: %w", err)
+	}
+
+	sRow.Timestamp = time.UnixMilli(tsMs).UTC()
+	sRow.Stream = streamInt != 0
+	if provider.Valid {
+		sRow.Provider = provider.String
+	}
+	if modelServed.Valid {
+		sRow.ModelServed = modelServed.String
+	}
+	if keyID.Valid {
+		sRow.KeyID = keyID.String
+	}
+	if session.Valid {
+		sRow.Session = session.String
+	}
+	if endpoint.Valid {
+		sRow.Endpoint = endpoint.String
+	}
+	if latencyMs.Valid {
+		sRow.Latency = time.Duration(latencyMs.Int64) * time.Millisecond
+	}
+	if reqBody.Valid {
+		sRow.RequestBody = reqBody.String
+	}
+	if respBody.Valid {
+		sRow.ResponseBody = respBody.String
+	}
+	if xlatedReqBody.Valid {
+		sRow.TranslatedRequestBody = xlatedReqBody.String
+	}
+	if rawRespBody.Valid {
+		sRow.RawResponseBody = rawRespBody.String
+	}
+	if attempts.Valid {
+		sRow.Attempts = attempts.String
+	}
+
+	return sRow, true, nil
+}
+
 // List queries history summaries matching the filter with cursor pagination.
+// Body columns are omitted to keep page weight lightweight.
 func (s *Store) List(ctx context.Context, filter history.Filter) ([]history.Summary, string, error) {
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
+	} else if limit > history.MaxListLimit {
+		limit = history.MaxListLimit
 	}
 
 	var where []string
@@ -88,8 +178,7 @@ func (s *Store) List(ctx context.Context, filter history.Filter) ([]history.Summ
 	query := fmt.Sprintf(`
 SELECT id, timestamp, provider, model_requested, model_served, key_id, session, endpoint,
        stream, outcome, input_tokens, output_tokens, cache_read_tokens,
-       cache_creation_tokens, latency_ms, request_body, response_body, translated_request_body,
-       raw_response_body, attempts
+       cache_creation_tokens, latency_ms, attempts
 FROM requests
 %s
 ORDER BY timestamp DESC, id DESC
@@ -109,7 +198,7 @@ LIMIT %d;
 		var streamInt int
 		var latencyMs sql.NullInt64
 		var provider, modelServed, keyID, session, endpoint sql.NullString
-		var reqBody, respBody, xlatedReqBody, rawRespBody, attempts sql.NullString
+		var attempts sql.NullString
 
 		err := rows.Scan(
 			&sRow.ID,
@@ -127,10 +216,6 @@ LIMIT %d;
 			&sRow.CacheReadTokens,
 			&sRow.CacheCreationTokens,
 			&latencyMs,
-			&reqBody,
-			&respBody,
-			&xlatedReqBody,
-			&rawRespBody,
 			&attempts,
 		)
 		if err != nil {
@@ -156,18 +241,6 @@ LIMIT %d;
 		}
 		if latencyMs.Valid {
 			sRow.Latency = time.Duration(latencyMs.Int64) * time.Millisecond
-		}
-		if reqBody.Valid {
-			sRow.RequestBody = reqBody.String
-		}
-		if respBody.Valid {
-			sRow.ResponseBody = respBody.String
-		}
-		if xlatedReqBody.Valid {
-			sRow.TranslatedRequestBody = xlatedReqBody.String
-		}
-		if rawRespBody.Valid {
-			sRow.RawResponseBody = rawRespBody.String
 		}
 		if attempts.Valid {
 			sRow.Attempts = attempts.String

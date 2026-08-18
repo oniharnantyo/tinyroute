@@ -3,6 +3,11 @@ package dashboard
 import (
 	"fmt"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/breadcrumb"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/inputgroup"
 )
 
 type CatalogModelItem struct {
@@ -30,29 +35,35 @@ type ProviderDetailPageData struct {
 	UserCode          string
 	VerificationURI   string
 	DeviceID          string
-	Flash             string
-	Error             string
 }
 
 templ ProviderDetailPage(data ProviderDetailPageData) {
 	<div class="space-y-6">
 		<!-- Header Breadcrumb & Actions -->
-		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-			<div class="space-y-1">
-				<div class="flex items-center space-x-2 text-xs text-slate-400">
-					<a href="/dashboard/providers" class="hover:text-white transition-colors">Providers</a>
-					<span>/</span>
-					<span class="text-white font-medium">
-						if data.DisplayName != "" {
-							{ data.DisplayName }
-						} else {
-							{ data.Name }
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+			<div class="space-y-2">
+				@breadcrumb.Breadcrumb() {
+					@breadcrumb.List() {
+						@breadcrumb.Item() {
+							@breadcrumb.Link(breadcrumb.LinkProps{Href: "/dashboard/providers"}) {
+								Providers
+							}
 						}
-					</span>
-				</div>
+						@breadcrumb.Separator()
+						@breadcrumb.Item() {
+							@breadcrumb.Page() {
+								if data.DisplayName != "" {
+									{ data.DisplayName }
+								} else {
+									{ data.Name }
+								}
+							}
+						}
+					}
+				}
 				<div class="flex items-center space-x-3">
 					@providerLogo(data.Name, data.Logo)
-					<h2 class="text-xl font-bold tracking-tight text-white">
+					<h2 class="text-xl font-bold tracking-tight text-foreground">
 						if data.DisplayName != "" {
 							{ data.DisplayName }
 						} else {
@@ -65,224 +76,294 @@ templ ProviderDetailPage(data ProviderDetailPageData) {
 
 		<!-- DEVICE CODE POLLING MODAL BANNER -->
 		if data.DeviceCode != "" {
-			<div class="bg-indigo-950/60 border border-indigo-500/40 rounded-2xl p-6 shadow-xl space-y-4" x-data={ fmt.Sprintf("{ polling: true, status: 'polling...', deviceCode: '%s', deviceID: '%s', poll() { fetch('/dashboard/providers/%s/oauth/device/poll', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'device_code=' + encodeURIComponent(this.deviceCode) + '&device_id=' + encodeURIComponent(this.deviceID) }).then(r => r.json()).then(d => { if (d.status === 'success') { window.location.href = '/dashboard/providers/%s?flash=' + encodeURIComponent('Successfully connected OAuth!'); } else if (d.status === 'error') { this.polling = false; this.status = 'Error: ' + d.message; } }) } }", jsEscape(data.DeviceCode), jsEscape(data.DeviceID), jsEscape(data.Name), jsEscape(data.Name)) } x-init="poll(); setInterval(() => { if (polling) poll() }, 5000)">
-				<div class="flex items-center justify-between border-b border-indigo-800/60 pb-3">
-					<h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center gap-2">
-						@components.Icon("key", "w-4 h-4 text-indigo-400")
+			<div
+				id="device-auth-banner"
+				data-device-code={ data.DeviceCode }
+				data-device-id={ data.DeviceID }
+				data-provider={ data.Name }
+				class="bg-card border border-primary/40 rounded-xl p-6 shadow-xl space-y-4"
+			>
+				<div class="flex items-center justify-between border-b border-border pb-3">
+					<h3 class="font-bold text-sm text-foreground uppercase tracking-wider flex items-center gap-2">
+						@icon.Key(icon.Props{Class: "size-4 text-primary"})
 						Device Authorization Required
 					</h3>
-					<span class="text-xs text-indigo-300 font-mono" x-text="status"></span>
+					<span id="device-auth-status" class="text-xs text-primary font-mono">polling...</span>
 				</div>
 				<div class="space-y-3 text-xs">
-					<p class="text-slate-300">Open the verification URL below and enter your user code to authorize:</p>
-					<div class="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2 font-mono">
+					<p class="text-muted-foreground">Open the verification URL below and enter your user code to authorize:</p>
+					<div class="p-3.5 bg-muted/50 border border-border rounded-lg space-y-2 font-mono">
 						<div class="flex items-center justify-between">
-							<span class="text-slate-500">User Code:</span>
-							<span class="font-bold text-indigo-300 text-sm">{ data.UserCode }</span>
+							<span class="text-muted-foreground">User Code:</span>
+							<span class="font-bold text-primary text-sm">{ data.UserCode }</span>
 						</div>
 						<div class="flex items-center justify-between">
-							<span class="text-slate-500">Verification URL:</span>
-							<a href={ templ.SafeURL(data.VerificationURI) } target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">{ data.VerificationURI }</a>
+							<span class="text-muted-foreground">Verification URL:</span>
+							<a href={ templ.SafeURL(data.VerificationURI) } target="_blank" class="text-primary hover:underline truncate max-w-xs">{ data.VerificationURI }</a>
 						</div>
 					</div>
 					<div class="flex items-center gap-3 pt-2">
-						<a href={ templ.SafeURL(data.VerificationURI) } target="_blank" class="py-2 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl transition-all shadow-lg flex items-center gap-1.5">
+						@button.Button(button.Props{
+							Href:   data.VerificationURI,
+							Target: "_blank",
+							Class:  "gap-1.5 shadow-sm",
+						}) {
 							<span>Open Authorization Page</span>
-							@components.Icon("external-link", "w-3.5 h-3.5")
-						</a>
-						<a href={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name)) } x-show="!polling" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-xl transition-all shadow-lg flex items-center gap-1.5">
-							@components.Icon("refresh-cw", "w-3.5 h-3.5")
+							@icon.ExternalLink(icon.Props{Class: "size-3.5"})
+						}
+						<a
+							id="device-auth-restart"
+							href={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name)) }
+							class="hidden inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white shadow-sm transition-colors"
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-3.5"})
 							<span>Restart Authorization</span>
 						</a>
 					</div>
 				</div>
 			</div>
 		}
+
 		<!-- CONNECTIONS SECTION -->
-		<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-			<div class="border-b border-slate-800 pb-3 flex items-center justify-between">
-				<h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center gap-2">
-					@components.Icon("lock", "w-4 h-4 text-indigo-400")
+		@card.Card() {
+			@card.Header(card.HeaderProps{Class: "border-b border-border pb-3 flex flex-row items-center justify-between space-y-0"}) {
+				@card.Title(card.TitleProps{Class: "text-sm font-semibold uppercase tracking-wider flex items-center gap-2 text-foreground"}) {
+					@icon.Lock(icon.Props{Class: "size-4 text-primary"})
 					Connections & Credentials
-				</h3>
-				<span class="text-xs text-slate-400 font-mono">{ fmt.Sprintf("%d active connections", len(data.Connections)) }</span>
-			</div>
-			if len(data.Connections) > 0 {
-				<div class="space-y-2">
-					for _, conn := range data.Connections {
-						<div class="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-slate-950/80 border border-slate-800/80 rounded-xl text-xs font-mono gap-2">
-							<div class="space-y-0.5">
-								<span class="font-bold text-indigo-300">{ conn.Account }</span>
-								<div class="text-slate-400 text-[11px]">Token Digest: { conn.RefreshToken }</div>
+				}
+				<span class="text-xs text-muted-foreground font-mono">{ fmt.Sprintf("%d active connections", len(data.Connections)) }</span>
+			}
+			@card.Content(card.ContentProps{Class: "p-6 space-y-4"}) {
+				if len(data.Connections) > 0 {
+					<div class="space-y-2">
+						for _, conn := range data.Connections {
+							<div class="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-muted/40 border border-border rounded-lg text-xs font-mono gap-2">
+								<div class="space-y-0.5">
+									<span class="font-bold text-foreground">{ conn.Account }</span>
+									<div class="text-muted-foreground text-[11px]">Token Digest: { conn.RefreshToken }</div>
+								</div>
+								<div class="flex items-center gap-3">
+									<span class="text-muted-foreground text-[11px]">Expires: { conn.ExpiresAt }</span>
+									<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove this OAuth connection?');">
+										<input type="hidden" name="name" value={ data.Name }/>
+										<input type="hidden" name="account" value={ conn.Account }/>
+										<input type="hidden" name="type" value="oauth"/>
+										<button type="submit" class="p-1.5 text-muted-foreground hover:text-destructive transition-colors cursor-pointer" title="Remove OAuth Connection">
+											@icon.Trash(icon.Props{Class: "size-3.5"})
+										</button>
+									</form>
+								</div>
 							</div>
-							<div class="flex items-center gap-3">
-								<span class="text-slate-400 text-[11px]">Expires: { conn.ExpiresAt }</span>
-								<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove this OAuth connection?');">
-									<input type="hidden" name="name" value={ data.Name }/>
-									<input type="hidden" name="account" value={ conn.Account }/>
-									<input type="hidden" name="type" value="oauth"/>
-									<button type="submit" class="p-1.5 text-slate-400 hover:text-rose-400 transition-colors" title="Remove OAuth Connection">
-										@components.Icon("trash", "w-3.5 h-3.5")
-									</button>
-								</form>
+						}
+					</div>
+				} else {
+					<p class="text-xs text-muted-foreground italic">No OAuth or stored credential records. You can save a static API Key below.</p>
+				}
+
+				if data.APIKey != "" {
+					<div class="p-3.5 bg-muted/40 border border-border rounded-lg text-xs font-mono flex items-center justify-between">
+						<div class="space-y-0.5">
+							<span class="text-foreground font-medium">Static API Key</span>
+							<div class="text-emerald-400 text-[11px]">Configured</div>
+						</div>
+						<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove the API key?');">
+							<input type="hidden" name="name" value={ data.Name }/>
+							<input type="hidden" name="type" value="api_key"/>
+							@button.Button(button.Props{
+								Type:    button.TypeSubmit,
+								Variant: button.VariantDestructive,
+								Size:    button.SizeSm,
+								Class:   "gap-1.5",
+							}) {
+								@icon.Trash(icon.Props{Class: "size-3.5"})
+								<span>Remove API Key</span>
+							}
+						</form>
+					</div>
+				}
+
+				if data.OAuthCapable {
+					<div class="pt-3 border-t border-border flex items-center justify-between">
+						<div class="space-y-0.5">
+							<span class="text-xs font-medium text-foreground">OAuth Connection</span>
+							<p class="text-[11px] text-muted-foreground">Authenticate with { data.DisplayName } using OAuth in browser</p>
+						</div>
+						@button.Button(button.Props{
+							Href:  fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name),
+							Class: "gap-2 shadow-sm",
+						}) {
+							@icon.Key(icon.Props{Class: "size-4"})
+							<span>Connect with OAuth</span>
+						}
+					</div>
+				}
+
+				if !data.OAuthCapable {
+					<form method="POST" action="/dashboard/providers/credential" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-3 border-t border-border">
+						<input type="hidden" name="name" value={ data.Name }/>
+						<input type="password" name="api_key" placeholder="Paste API Key / Secret Token (starts with sk-...)" class="flex-1 px-3.5 py-2 bg-transparent border border-input rounded-md text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none font-mono"/>
+						@button.Button(button.Props{
+							Type:  button.TypeSubmit,
+							Class: "shrink-0",
+						}) {
+							Save API Key Secret
+						}
+					</form>
+				}
+			}
+		}
+
+		<!-- MODELS SECTION -->
+		@card.Card() {
+			@card.Header(card.HeaderProps{Class: "border-b border-border pb-3 flex flex-row items-center justify-between space-y-0"}) {
+				@card.Title(card.TitleProps{Class: "text-sm font-semibold uppercase tracking-wider flex items-center gap-2 text-foreground"}) {
+					@icon.Cpu(icon.Props{Class: "size-4 text-primary"})
+					Models ({ fmt.Sprintf("%d", len(data.Models)) })
+				}
+			}
+
+			@card.Content(card.ContentProps{Class: "p-6 space-y-6"}) {
+				if len(data.Models) == 0 {
+					<p class="text-xs text-muted-foreground italic">No catalog models found. Enter a custom model name below to whitelist it.</p>
+				} else {
+					<div class="space-y-6">
+						<div class="flex items-center">
+							<div class="w-full sm:w-72">
+								@inputgroup.InputGroup() {
+									@inputgroup.Addon() {
+										@icon.Search()
+									}
+									@inputgroup.Input(inputgroup.InputProps{
+										Type:        "search",
+										Placeholder: "Filter models...",
+										Attributes:  templ.Attributes{"data-filter-input": "models"},
+									})
+								}
 							</div>
 						</div>
+
+						if len(data.WhitelistedModels) > 0 {
+							<div class="space-y-3">
+								<div class="flex items-center gap-2">
+									<span class="size-2 rounded-full bg-primary"></span>
+									<h4 class="text-xs font-semibold text-foreground uppercase tracking-wider">Whitelisted ({ fmt.Sprintf("%d", len(data.WhitelistedModels)) })</h4>
+								</div>
+								<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+									for _, m := range data.WhitelistedModels {
+										@modelCard(data.Name, m)
+									}
+								</div>
+							</div>
+						}
+
+						if len(data.AvailableModels) > 0 {
+							<div class="space-y-3">
+								<div class="flex items-center gap-2">
+									<span class="size-2 rounded-full bg-muted-foreground"></span>
+									<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available in Catalog ({ fmt.Sprintf("%d", len(data.AvailableModels)) })</h4>
+								</div>
+								<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+									for _, m := range data.AvailableModels {
+										@modelCard(data.Name, m)
+									}
+								</div>
+							</div>
+						}
+					</div>
+				}
+
+				<!-- Custom Model Input Escape Hatch -->
+				<form method="POST" action="/dashboard/models/add" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-4 border-t border-border">
+					<input type="hidden" name="provider" value={ data.Name }/>
+					<input type="text" id="custom_model_input" name="model" placeholder="Custom model name (e.g. gpt-4o)" required class="flex-1 px-3.5 py-2 bg-transparent border border-input rounded-md text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none font-mono"/>
+					@button.Button(button.Props{
+						Type:  button.TypeSubmit,
+						Class: "shrink-0 gap-1.5",
+					}) {
+						@icon.Plus(icon.Props{Class: "size-4"})
+						<span>Add Model</span>
 					}
-				</div>
-			} else {
-				<p class="text-xs text-slate-500 italic">No OAuth or stored credential records. You can save a static API Key below.</p>
-			}
-			if data.APIKey != "" {
-				<div class="p-3.5 bg-slate-950/80 border border-slate-800/80 rounded-xl text-xs font-mono flex items-center justify-between">
-					<div class="space-y-0.5">
-						<span class="text-white font-medium">Static API Key</span>
-						<div class="text-emerald-400 text-[11px]">Configured</div>
-					</div>
-					<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove the API key?');">
-						<input type="hidden" name="name" value={ data.Name }/>
-						<input type="hidden" name="type" value="api_key"/>
-						<button type="submit" class="py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5">
-							@components.Icon("trash", "w-3.5 h-3.5")
-							<span>Remove API Key</span>
-						</button>
-					</form>
-				</div>
-			}
-			if data.OAuthCapable {
-				<div class="pt-3 border-t border-slate-800/60 flex items-center justify-between">
-					<div class="space-y-0.5">
-						<span class="text-xs font-medium text-white">OAuth Connection</span>
-						<p class="text-[11px] text-slate-400">Authenticate with { data.DisplayName } using OAuth in browser</p>
-					</div>
-					<a href={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name)) } class="py-2 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2">
-						@components.Icon("key", "w-4 h-4")
-						<span>Connect with OAuth</span>
-					</a>
-				</div>
-			}
-			if !data.OAuthCapable {
-				<form method="POST" action="/dashboard/providers/credential" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-3 border-t border-slate-800/60">
-					<input type="hidden" name="name" value={ data.Name }/>
-					<input type="password" name="api_key" placeholder="Paste API Key / Secret Token (starts with sk-...)" class="flex-1 px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
-					<button type="submit" class="py-2 px-4 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-medium rounded-xl transition-all shrink-0">
-						Save API Key Secret
-					</button>
 				</form>
 			}
-		</div>
-		<!-- MODELS SECTION -->
-		<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-			<div class="border-b border-slate-800 pb-3 flex items-center justify-between">
-				<h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center gap-2">
-					@components.Icon("cpu", "w-4 h-4 text-indigo-400")
-					Models ({ fmt.Sprintf("%d", len(data.Models)) })
-				</h3>
-			</div>
-			if len(data.Models) == 0 {
-				<p class="text-xs text-slate-500 italic">No catalog models found. Enter a custom model name below to whitelist it.</p>
-			} else {
-				<div x-data="{ search: '', limit: 12 }" class="space-y-6">
-					<div class="flex items-center">
-						<div class="relative w-full sm:w-72">
-							<input type="text" x-model="search" placeholder="Filter models..." class="w-full pl-9 pr-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
-							<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-								@components.Icon("search", "w-3.5 h-3.5")
-							</div>
-						</div>
-					</div>
-					if len(data.WhitelistedModels) > 0 {
-						<div class="space-y-3">
-							<div class="flex items-center gap-2">
-								<span class="w-2 h-2 rounded-full bg-indigo-500"></span>
-								<h4 class="text-xs font-bold text-white uppercase tracking-wider">Whitelisted ({ fmt.Sprintf("%d", len(data.WhitelistedModels)) })</h4>
-							</div>
-							<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-								for _, m := range data.WhitelistedModels {
-									@modelCard(data.Name, m, fmt.Sprintf("!search || '%s %s'.toLowerCase().includes(search.toLowerCase())", jsEscape(m.ID), jsEscape(m.Name)))
-								}
-							</div>
-						</div>
-					}
-					if len(data.AvailableModels) > 0 {
-						<div class="space-y-3">
-							<div class="flex items-center gap-2">
-								<span class="w-2 h-2 rounded-full bg-slate-600"></span>
-								<h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Available in Catalog ({ fmt.Sprintf("%d", len(data.AvailableModels)) })</h4>
-							</div>
-							<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-								for idx, m := range data.AvailableModels {
-									@modelCard(data.Name, m, fmt.Sprintf("(!search ? %d < limit : true) && (!search || '%s %s'.toLowerCase().includes(search.toLowerCase()))", idx, jsEscape(m.ID), jsEscape(m.Name)))
-								}
-							</div>
-							if len(data.AvailableModels) > 12 {
-								<div class="flex justify-center pt-2" x-show={ fmt.Sprintf("limit < %d", len(data.AvailableModels)) }>
-									<button type="button" @click="limit += 24" class="py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl transition-all border border-slate-700">
-										Show more
-									</button>
-								</div>
-							}
-						</div>
-					}
-				</div>
-			}
-			<!-- Custom Model Input Escape Hatch -->
-			<form method="POST" action="/dashboard/models/add" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-4 border-t border-slate-800/60">
-				<input type="hidden" name="provider" value={ data.Name }/>
-				<input type="text" id="custom_model_input" name="model" placeholder="Custom model name (e.g. gpt-4o)" required class="flex-1 px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"/>
-				<button type="submit" class="py-2 px-4 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-medium rounded-xl transition-all shrink-0 flex items-center justify-center gap-1.5">
-					@components.Icon("plus", "w-4 h-4")
-					<span>Add Model</span>
-				</button>
-			</form>
-		</div>
+		}
+
 		@providerDetailScripts()
 	</div>
 }
 
-templ modelCard(provider string, m CatalogModelItem, xShowExpr string) {
-	<div x-show={ xShowExpr } class="p-3.5 bg-slate-950/80 border border-slate-800/80 rounded-xl space-y-2.5 flex flex-col justify-between">
+templ modelCard(provider string, m CatalogModelItem) {
+	<div
+		data-filter-item="models"
+		data-filter-text={ fmt.Sprintf("%s %s", m.ID, m.Name) }
+		class="p-3.5 bg-card border border-border rounded-lg space-y-2.5 flex flex-col justify-between"
+	>
 		<div>
 			<div class="flex items-center justify-between gap-2">
-				<span class="font-bold text-xs text-slate-200 font-mono tracking-tight truncate" title={ m.ID }>{ m.ID }</span>
+				<span class="font-bold text-xs text-foreground font-mono tracking-tight truncate" title={ m.ID }>{ m.ID }</span>
 				if m.Whitelisted {
-					<span class="px-2 py-0.5 rounded-full text-[9px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">Whitelisted</span>
+					@components.StatusBadge(components.StatusBadgeProps{
+						Variant: components.StatusInfo,
+						Class:   "text-[10px] px-1.5 py-0",
+					}) {
+						Whitelisted
+					}
 				} else {
-					<span class="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-900 text-slate-500 border border-slate-800 shrink-0">Catalog</span>
+					@components.StatusBadge(components.StatusBadgeProps{
+						Variant: components.StatusNeutral,
+						Class:   "text-[10px] px-1.5 py-0",
+					}) {
+						Catalog
+					}
 				}
 			</div>
 			if m.Name != "" && m.Name != m.ID {
-				<p class="text-[11px] font-mono text-slate-500 truncate" title={ m.Name }>{ m.Name }</p>
+				<p class="text-[11px] font-mono text-muted-foreground truncate" title={ m.Name }>{ m.Name }</p>
 			}
 		</div>
-		<div class="pt-2 border-t border-slate-800/60 flex items-center justify-between">
+		<div class="pt-2 border-t border-border flex items-center justify-between">
 			if m.Whitelisted {
 				<div class="flex items-center gap-2">
-					<button
-						type="button"
-						data-provider={ provider }
-						data-model={ m.ID }
-						onclick="testModelProbe(this, this.dataset.provider, this.dataset.model)"
-						class="py-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
-					>
-						@components.Icon("refresh-cw", "w-3 h-3 text-slate-400")
+					@button.Button(button.Props{
+						Type:    button.TypeButton,
+						Variant: button.VariantSecondary,
+						Size:    button.SizeSm,
+						Class:   "text-[11px] gap-1.5 cursor-pointer",
+						Attributes: templ.Attributes{
+							"data-provider": provider,
+							"data-model":    m.ID,
+							"onclick":       "testModelProbe(this, this.dataset.provider, this.dataset.model)",
+						},
+					}) {
+						@icon.RefreshCw(icon.Props{Class: "size-3 text-muted-foreground"})
 						<span>Test Probe</span>
-					</button>
+					}
 					<form method="POST" action="/dashboard/models/remove" class="inline">
 						<input type="hidden" name="provider" value={ provider }/>
 						<input type="hidden" name="model" value={ m.ID }/>
-						<button type="submit" class="py-1 px-2.5 text-rose-400 hover:text-rose-300 text-[11px] font-medium transition-all cursor-pointer">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantGhost,
+							Size:    button.SizeSm,
+							Class:   "text-destructive hover:text-destructive/80 text-[11px]",
+						}) {
 							Remove
-						</button>
+						}
 					</form>
 				</div>
 			} else {
 				<form method="POST" action="/dashboard/models/add" class="w-full">
 					<input type="hidden" name="provider" value={ provider }/>
 					<input type="hidden" name="model" value={ m.ID }/>
-					<button type="submit" class="w-full py-1.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1">
-						@components.Icon("plus", "w-3.5 h-3.5")
-						<span>+ Add to Whitelist</span>
-					</button>
+					@button.Button(button.Props{
+						Type:      button.TypeSubmit,
+						Variant:   button.VariantOutline,
+						Size:      button.SizeSm,
+						FullWidth: true,
+						Class:     "gap-1 text-xs",
+					}) {
+						@icon.Plus(icon.Props{Class: "size-3.5"})
+						<span>Add to Whitelist</span>
+					}
 				</form>
 			}
 		</div>
@@ -323,5 +404,51 @@ templ providerDetailScripts() {
 				}
 			);
 		}
+
+		// Device code polling vanilla runner
+		(function() {
+			const banner = document.getElementById('device-auth-banner');
+			if (!banner) return;
+
+			const deviceCode = banner.getAttribute('data-device-code');
+			const deviceID = banner.getAttribute('data-device-id');
+			const provider = banner.getAttribute('data-provider');
+			const statusEl = document.getElementById('device-auth-status');
+			const restartBtn = document.getElementById('device-auth-restart');
+
+			let polling = true;
+
+			function poll() {
+				if (!polling) return;
+				fetch(`/dashboard/providers/${encodeURIComponent(provider)}/oauth/device/poll`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body: `device_code=${encodeURIComponent(deviceCode)}&device_id=${encodeURIComponent(deviceID)}`
+				})
+				.then(r => r.json())
+				.then(d => {
+					if (d.status === 'success') {
+						polling = false;
+						window.location.href = `/dashboard/providers/${encodeURIComponent(provider)}?flash=` + encodeURIComponent('Successfully connected OAuth!');
+					} else if (d.status === 'error') {
+						polling = false;
+						if (statusEl) statusEl.textContent = 'Error: ' + d.message;
+						if (restartBtn) restartBtn.classList.remove('hidden');
+					}
+				})
+				.catch(err => {
+					console.error('Polling error:', err);
+				});
+			}
+
+			poll();
+			const interval = setInterval(function() {
+				if (polling) {
+					poll();
+				} else {
+					clearInterval(interval);
+				}
+			}, 5000);
+		})();
 	</script>
 }

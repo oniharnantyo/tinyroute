@@ -1,0 +1,96 @@
+package dashboard
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/assets"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/inputgroup"
+)
+
+templ viewClients(data ClientsPageData) {
+	<div class="space-y-6">
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+			<div>
+				<h2 class="text-xl font-bold tracking-tight text-foreground">Clients</h2>
+				<p class="text-xs text-muted-foreground">Configure downstream coding tools and IDE extensions to route through tinyroute.</p>
+			</div>
+		</div>
+
+		<!-- Client Filter Search -->
+		@inputgroup.InputGroup() {
+			@inputgroup.Addon() {
+				@icon.Search()
+			}
+			@inputgroup.Input(inputgroup.InputProps{
+				Type:        "search",
+				Placeholder: "Search clients by name or id...",
+				Attributes:  templ.Attributes{"data-filter-input": "clients"},
+			})
+		}
+
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+			for _, c := range data.Clients {
+				<a
+					href={ templ.SafeURL("/dashboard/clients/" + c.ID) }
+					data-filter-item="clients"
+					data-filter-text={ c.Name + " " + c.ID + " " + c.Dialect }
+					class="block group"
+				>
+					@card.Card(card.Props{
+						Class: "h-full p-5 flex flex-col justify-between transition-all hover:border-primary/50 hover:bg-muted/30 group-hover:shadow-md",
+					}) {
+						<div>
+							<div class="flex items-start justify-between gap-3">
+								<div class="flex items-center space-x-3">
+									@clientLogo(c.ID, c.Name)
+									<div>
+										<h3 class="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">{ c.Name }</h3>
+										<span class="text-xs font-mono text-muted-foreground">{ c.ID }</span>
+									</div>
+								</div>
+								if c.StatusState == "connected" {
+									@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess}) {
+										{ c.StatusLabel }
+									}
+								} else if c.StatusState == "not_configured" {
+									@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusWarning}) {
+										{ c.StatusLabel }
+									}
+								} else {
+									@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusNeutral}) {
+										{ c.StatusLabel }
+									}
+								}
+							</div>
+						</div>
+
+						<div class="mt-6 pt-4 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+							<div class="flex items-center gap-1.5 font-mono text-muted-foreground">
+								@icon.Cpu(icon.Props{Class: "size-3.5 text-muted-foreground"})
+								<span>{ c.Dialect }</span>
+							</div>
+							<span class="text-primary group-hover:translate-x-0.5 transition-transform flex items-center gap-1 font-medium">
+								Configure
+								@icon.ChevronRight(icon.Props{Class: "size-3.5"})
+							</span>
+						</div>
+					}
+				</a>
+			}
+		</div>
+	</div>
+}
+
+// clientLogo renders a client's brand logo or a two-letter monogram fallback
+templ clientLogo(id string, name string) {
+	if logoData, ok := assets.LogoSVG(id); ok {
+		<div class="size-10 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground group-hover:border-primary/40 group-hover:text-primary transition-colors shrink-0">
+			@templ.Raw(string(logoData))
+		</div>
+	} else {
+		<div class="size-10 rounded-lg bg-muted border border-border flex items-center justify-center font-bold text-foreground group-hover:border-primary/40 group-hover:text-primary transition-colors uppercase text-xs font-mono shrink-0">
+			{ name[:2] }
+		</div>
+	}
+}

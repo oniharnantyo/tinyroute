@@ -1,0 +1,86 @@
+package components
+
+import (
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/alert"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+)
+
+type AlertBannerVariant string
+
+const (
+	AlertInfo    AlertBannerVariant = "info"
+	AlertSuccess AlertBannerVariant = "success"
+	AlertWarning AlertBannerVariant = "warning"
+	AlertError   AlertBannerVariant = "error"
+)
+
+type AlertBannerProps struct {
+	ID          string
+	Variant     AlertBannerVariant
+	Title       string
+	Description string
+	Icon        IconFunc
+	Class       string
+	Attributes  templ.Attributes
+}
+
+templ AlertBanner(props ...AlertBannerProps) {
+	{{ var p AlertBannerProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	{{ iconFn := p.Icon }}
+	if iconFn == nil {
+		{{ iconFn = defaultAlertIcon(p.Variant) }}
+	}
+	@alert.Alert(alert.Props{
+		ID:         p.ID,
+		Attributes: p.Attributes,
+		Class: utils.TwMerge(
+			alertVariantClasses(p.Variant),
+			p.Class,
+		),
+	}) {
+		if iconFn != nil {
+			@iconFn(icon.Props{Class: "size-4"})
+		}
+		if p.Title != "" {
+			@alert.Title() {
+				{ p.Title }
+			}
+		}
+		if p.Description != "" {
+			@alert.Description() {
+				{ p.Description }
+			}
+		}
+		{ children... }
+	}
+}
+
+func defaultAlertIcon(v AlertBannerVariant) IconFunc {
+	switch v {
+	case AlertSuccess:
+		return icon.CircleCheck
+	case AlertWarning:
+		return icon.TriangleAlert
+	case AlertError:
+		return icon.CircleAlert
+	default:
+		return icon.Info
+	}
+}
+
+func alertVariantClasses(v AlertBannerVariant) string {
+	switch v {
+	case AlertSuccess:
+		return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 [&>svg]:text-emerald-400"
+	case AlertWarning:
+		return "border-amber-500/30 bg-amber-500/10 text-amber-300 [&>svg]:text-amber-400"
+	case AlertError:
+		return "border-rose-500/30 bg-rose-500/10 text-rose-300 [&>svg]:text-rose-400"
+	default: // AlertInfo
+		return "border-sky-500/30 bg-sky-500/10 text-sky-300 [&>svg]:text-sky-400"
+	}
+}

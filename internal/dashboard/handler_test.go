@@ -22,21 +22,47 @@ import (
 	"github.com/oniharnantyo/tinyroute/internal/route"
 )
 
-type mockHistoryQuerier struct{}
+type mockHistoryQuerier struct {
+	lastFilter history.Filter
+	nextCursor string
+}
 
 func (m *mockHistoryQuerier) List(ctx context.Context, filter history.Filter) ([]history.Summary, string, error) {
+	m.lastFilter = filter
 	return []history.Summary{
 		{
 			ID:           "req-123",
 			Timestamp:    time.Now(),
 			Provider:     "openai",
 			ModelReq:     "gpt-4o",
-			Outcome:      "success",
+			Outcome:      "ok",
 			InputTokens:  100,
 			OutputTokens: 50,
 			Latency:      200 * time.Millisecond,
+			Attempts:     `[{"provider":"openai","model":"gpt-4o","status":200,"elapsed_ms":200}]`,
 		},
-	}, "", nil
+	}, m.nextCursor, nil
+}
+
+func (m *mockHistoryQuerier) Get(ctx context.Context, id string) (history.Summary, bool, error) {
+	if id == "req-123" {
+		return history.Summary{
+			ID:                    "req-123",
+			Timestamp:             time.Now(),
+			Provider:              "openai",
+			ModelReq:              "gpt-4o",
+			Outcome:               "ok",
+			InputTokens:           100,
+			OutputTokens:          50,
+			Latency:               200 * time.Millisecond,
+			RequestBody:           `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`,
+			ResponseBody:          `{"choices":[{"message":{"role":"assistant","content":"world"}}]}`,
+			TranslatedRequestBody: `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`,
+			RawResponseBody:       `{"choices":[{"message":{"role":"assistant","content":"world"}}]}`,
+			Attempts:              `[{"provider":"openai","model":"gpt-4o","status":200,"elapsed_ms":200}]`,
+		}, true, nil
+	}
+	return history.Summary{}, false, nil
 }
 
 func (m *mockHistoryQuerier) LastUseByKey(ctx context.Context) (map[string]time.Time, error) {
@@ -1030,5 +1056,606 @@ func TestAvailablePresetDetailView(t *testing.T) {
 	}
 	if !strings.Contains(body, "Models") {
 		t.Errorf("expected Models section to render for available preset")
+	}
+}
+
+func TestHistoryView_FilteringAndPagination(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	mockHQ := deps.HistoryQuerier.(*mockHistoryQuerier)
+	token := deps.SessionStore.CreateSession(1 * time.Hour)
+	cookie := &http.Cookie{Name: SessionCookieName, Value: token}
+
+	// 1. Check filter parsing with dates, provider, limit
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/history?provider=openai&from=2026-08-01&to=2026-08-05&limit=25", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for history view, got %d", rec.Code)
+	}
+
+	if mockHQ.lastFilter.Provider != "openai" {
+		t.Errorf("expected filter Provider 'openai', got %q", mockHQ.lastFilter.Provider)
+	}
+	if mockHQ.lastFilter.Limit != 25 {
+		t.Errorf("expected filter Limit 25, got %d", mockHQ.lastFilter.Limit)
+	}
+
+	expectedFrom := time.Date(2026, 8, 1, 0, 0, 0, 0, time.Local)
+	if !mockHQ.lastFilter.From.Equal(expectedFrom) {
+		t.Errorf("expected filter From %v, got %v", expectedFrom, mockHQ.lastFilter.From)
+	}
+
+	expectedTo := time.Date(2026, 8, 5, 23, 59, 59, 999999999, time.Local)
+	if !mockHQ.lastFilter.To.Equal(expectedTo) {
+		t.Errorf("expected filter To %v, got %v", expectedTo, mockHQ.lastFilter.To)
+	}
+
+	// 2. Clamping of limit above MaxListLimit (500)
+	req = httptest.NewRequest(http.MethodGet, "/dashboard/history?limit=1000", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if mockHQ.lastFilter.Limit != 500 {
+		t.Errorf("expected clamped Limit 500, got %d", mockHQ.lastFilter.Limit)
+	}
+
+	// 3. Load More link rendered when nextCursor exists, preserving all filters and growing limit
+	mockHQ.nextCursor = "cursor-xyz"
+	req = httptest.NewRequest(http.MethodGet, "/dashboard/history?provider=openai&from=2026-08-01&limit=50", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Load More") {
+		t.Errorf("expected Load More button when HasMore is true")
+	}
+	if !strings.Contains(body, "limit=100") {
+		t.Errorf("expected Load More link to increment limit to 100, got body: %s", body)
+	}
+	if !strings.Contains(body, "provider=openai") || !strings.Contains(body, "from=2026-08-01") {
+		t.Errorf("expected Load More link to preserve active filters, got body: %s", body)
+	}
+	if !strings.Contains(body, "#history-table") {
+		t.Errorf("expected Load More link to have #history-table anchor fragment")
+	}
+
+	// 4. Status badge code rendered directly (not hardcoded 200 OK / 500 Error)
+	if !strings.Contains(body, "200") {
+		t.Errorf("expected status code 200 rendered in status badge")
+	}
+}
+
+func TestHistoryDetailView(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	token := deps.SessionStore.CreateSession(1 * time.Hour)
+	cookie := &http.Cookie{Name: SessionCookieName, Value: token}
+
+	// 1. Unauthenticated request redirects to login
+	unauthReq := httptest.NewRequest(http.MethodGet, "/dashboard/history/req-123", nil)
+	unauthRec := httptest.NewRecorder()
+	mux.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusSeeOther || !strings.Contains(unauthRec.Header().Get("Location"), "/dashboard/login") {
+		t.Errorf("expected redirect to login for unauthenticated detail view, got status %d, loc: %s", unauthRec.Code, unauthRec.Header().Get("Location"))
+	}
+
+	// 2. Existing request ID returns 200 and renders details and bodies
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/history/req-123", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for history detail view, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "req-123") {
+		t.Errorf("expected request ID req-123 in body")
+	}
+	if !strings.Contains(body, "Client Request") || !strings.Contains(body, "Provider Request") || !strings.Contains(body, "Provider Response") || !strings.Contains(body, "Final Response") {
+		t.Errorf("expected all 4 body panes in history detail view")
+	}
+	if !strings.Contains(body, "Attempt Chain") {
+		t.Errorf("expected Attempt Chain in history detail view")
+	}
+	if !strings.Contains(body, "/dashboard/history") {
+		t.Errorf("expected back link to history")
+	}
+
+	// 3. Unknown request ID renders 200 with Not Found state
+	req404 := httptest.NewRequest(http.MethodGet, "/dashboard/history/nonexistent-req", nil)
+	req404.AddCookie(cookie)
+	rec404 := httptest.NewRecorder()
+	mux.ServeHTTP(rec404, req404)
+
+	if rec404.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for not-found history detail view, got %d", rec404.Code)
+	}
+	body404 := rec404.Body.String()
+	if !strings.Contains(body404, "Request not found") {
+		t.Errorf("expected 'Request not found' in 404 state body")
+	}
+}
+
+func TestKeysManagementLifecycle(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	token := deps.SessionStore.CreateSession(1 * time.Hour)
+	cookie := &http.Cookie{Name: SessionCookieName, Value: token}
+
+	// 1. Unauthenticated requests redirect to login
+	for _, path := range []string{
+		"/dashboard/keys",
+		"/dashboard/keys/create",
+		"/dashboard/keys/k_1/update",
+		"/dashboard/keys/k_1/revoke",
+	} {
+		method := http.MethodGet
+		if strings.Contains(path, "create") || strings.Contains(path, "update") || strings.Contains(path, "revoke") {
+			method = http.MethodPost
+		}
+		unauthReq := httptest.NewRequest(method, path, nil)
+		unauthReq.Host = "127.0.0.1:8787"
+		unauthRec := httptest.NewRecorder()
+		mux.ServeHTTP(unauthRec, unauthReq)
+		if unauthRec.Code != http.StatusSeeOther || !strings.Contains(unauthRec.Header().Get("Location"), "/dashboard/login") {
+			t.Errorf("expected redirect to login for unauthenticated %s %s, got status %d, loc: %s", method, path, unauthRec.Code, unauthRec.Header().Get("Location"))
+		}
+	}
+
+	// 2. Create key with name, 7d expiry, rate limit
+	createForm := url.Values{
+		"name":          {"laptop-agent"},
+		"expiry_choice": {"7d"},
+		"rate_requests": {"60"},
+		"rate_interval": {"1m"},
+	}
+	createReq := httptest.NewRequest(http.MethodPost, "/dashboard/keys/create", strings.NewReader(createForm.Encode()))
+	createReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	createReq.Host = "127.0.0.1:8787"
+	createReq.AddCookie(cookie)
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
+
+	if createRec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect on key create, got %d", createRec.Code)
+	}
+	loc := createRec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/dashboard/keys") || strings.Contains(loc, "error=") {
+		t.Fatalf("unexpected create redirect location: %s", loc)
+	}
+
+	// Allow config watcher to catch file update
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. View /dashboard/keys
+	viewReq := httptest.NewRequest(http.MethodGet, "/dashboard/keys", nil)
+	viewReq.Host = "127.0.0.1:8787"
+	viewReq.AddCookie(cookie)
+	viewRec := httptest.NewRecorder()
+	mux.ServeHTTP(viewRec, viewReq)
+
+	if viewRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on keys view, got %d", viewRec.Code)
+	}
+	viewBody := viewRec.Body.String()
+	if !strings.Contains(viewBody, "laptop-agent") {
+		t.Errorf("expected keys view to contain created key 'laptop-agent'")
+	}
+	if !strings.Contains(viewBody, "60 / 1m") {
+		t.Errorf("expected rate '60 / 1m' in view body")
+	}
+	if !strings.Contains(viewBody, "active") {
+		t.Errorf("expected 'active' status badge in view body")
+	}
+
+	// Get created key ID from key watcher
+	ks := deps.KeyWatcher.Get()
+	var createdKey auth.Key
+	for _, k := range ks.Keys() {
+		if k.Name == "laptop-agent" {
+			createdKey = k
+			break
+		}
+	}
+	if createdKey.ID == "" {
+		t.Fatalf("created key not found in key watcher")
+	}
+
+	// 4. Update key name and rate
+	updateForm := url.Values{
+		"name":          {"desktop-agent"},
+		"expiry_choice": {"keep"},
+		"rate_requests": {"120"},
+		"rate_interval": {"1m"},
+	}
+	updateReq := httptest.NewRequest(http.MethodPost, "/dashboard/keys/"+createdKey.ID+"/update", strings.NewReader(updateForm.Encode()))
+	updateReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	updateReq.Host = "127.0.0.1:8787"
+	updateReq.AddCookie(cookie)
+	updateRec := httptest.NewRecorder()
+	mux.ServeHTTP(updateRec, updateReq)
+
+	if updateRec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect on key update, got %d", updateRec.Code)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify update
+	viewReq2 := httptest.NewRequest(http.MethodGet, "/dashboard/keys", nil)
+	viewReq2.Host = "127.0.0.1:8787"
+	viewReq2.AddCookie(cookie)
+	viewRec2 := httptest.NewRecorder()
+	mux.ServeHTTP(viewRec2, viewReq2)
+	viewBody2 := viewRec2.Body.String()
+	if !strings.Contains(viewBody2, "desktop-agent") {
+		t.Errorf("expected keys view to contain updated name 'desktop-agent'")
+	}
+	if !strings.Contains(viewBody2, "120 / 1m") {
+		t.Errorf("expected rate '120 / 1m' in view body")
+	}
+
+	// 5. Revoke key
+	revokeReq := httptest.NewRequest(http.MethodPost, "/dashboard/keys/"+createdKey.ID+"/revoke", nil)
+	revokeReq.Host = "127.0.0.1:8787"
+	revokeReq.AddCookie(cookie)
+	revokeRec := httptest.NewRecorder()
+	mux.ServeHTTP(revokeRec, revokeReq)
+
+	if revokeRec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect on key revoke, got %d", revokeRec.Code)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 6. Verify revoked key is absent from view and its secret is never in page data
+	viewReq3 := httptest.NewRequest(http.MethodGet, "/dashboard/keys", nil)
+	viewReq3.Host = "127.0.0.1:8787"
+	viewReq3.AddCookie(cookie)
+	viewRec3 := httptest.NewRecorder()
+	mux.ServeHTTP(viewRec3, viewReq3)
+	viewBody3 := viewRec3.Body.String()
+
+	if strings.Contains(viewBody3, "desktop-agent") {
+		t.Errorf("revoked key 'desktop-agent' must not render in keys table")
+	}
+	if createdKey.Secret != "" && strings.Contains(viewBody3, createdKey.Secret) {
+		t.Errorf("revoked key secret must never appear in page data")
+	}
+
+	// 7. Malformed input tests
+	badForm := url.Values{"name": {""}}
+	badReq := httptest.NewRequest(http.MethodPost, "/dashboard/keys/create", strings.NewReader(badForm.Encode()))
+	badReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	badReq.Host = "127.0.0.1:8787"
+	badReq.AddCookie(cookie)
+	badRec := httptest.NewRecorder()
+	mux.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusSeeOther || !strings.Contains(badRec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error redirect for empty key name, got status %d, loc %s", badRec.Code, badRec.Header().Get("Location"))
+	}
+}
+
+func TestKeysManagementErrorPaths(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	token := deps.SessionStore.CreateSession(1 * time.Hour)
+	cookie := &http.Cookie{Name: SessionCookieName, Value: token}
+
+	sendPost := func(urlPath string, form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, urlPath, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Host = "127.0.0.1:8787"
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Create with 30d expiry
+	rec := sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-30d"},
+		"expiry_choice": {"30d"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create 30d failed: %v", rec.Header().Get("Location"))
+	}
+
+	// 2. Create with custom RFC3339 and datetime-local
+	futureLocal := time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-custom-local"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {futureLocal},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create custom datetime-local failed: %v", rec.Header().Get("Location"))
+	}
+
+	futureRFC := time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339)
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-custom-rfc"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {futureRFC},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create custom RFC3339 failed: %v", rec.Header().Get("Location"))
+	}
+
+	// 3. Create with invalid custom date format
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-bad-date"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {"not-a-date"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for invalid custom date")
+	}
+
+	// 4. Create with past custom date
+	pastDate := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-past-date"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {pastDate},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for past custom date")
+	}
+
+	// 5. Create with invalid rate limit requests and interval
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-bad-rate-reqs"},
+		"rate_requests": {"-5"},
+		"rate_interval": {"1m"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for negative rate requests")
+	}
+
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-bad-rate-intv"},
+		"rate_requests": {"60"},
+		"rate_interval": {"invalid-dur"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for invalid rate interval")
+	}
+
+	// Create a valid key for update/revoke testing
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"7d"},
+		"rate_requests": {"10"},
+		"rate_interval": {"1m"},
+	})
+	time.Sleep(50 * time.Millisecond)
+	ks := deps.KeyWatcher.Get()
+	var targetKey auth.Key
+	for _, k := range ks.Keys() {
+		if k.Name == "target-key" {
+			targetKey = k
+			break
+		}
+	}
+	if targetKey.ID == "" {
+		t.Fatalf("failed to find target key")
+	}
+
+	// 6. Update error paths
+	// Missing name
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name": {""},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for empty name in update")
+	}
+
+	// Unknown key ID
+	rec = sendPost("/dashboard/keys/k_unknown_id/update", url.Values{
+		"name": {"new-name"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for unknown key ID in update")
+	}
+
+	// Update expiry never / 7d / 30d / custom
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"never"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update expiry never failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"7d"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update expiry 7d failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"30d"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update expiry 30d failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {futureLocal},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update expiry custom local failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {futureRFC},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update expiry custom RFC failed: %v", rec.Header().Get("Location"))
+	}
+
+	// Invalid update custom date
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {"bad-date"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for bad custom date on update")
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"expiry_choice": {"custom"},
+		"expiry_custom": {pastDate},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for past custom date on update")
+	}
+
+	// Clear rate & bad rate on update
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":       {"target-key"},
+		"clear_rate": {"true"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update clear_rate failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"rate_requests": {"abc"},
+		"rate_interval": {"1m"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for non-integer rate requests on update")
+	}
+
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":          {"target-key"},
+		"rate_requests": {"10"},
+		"rate_interval": {"bad-duration"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for invalid rate interval on update")
+	}
+
+	// 7. Revoke error paths
+	// Revoke unknown key ID
+	rec = sendPost("/dashboard/keys/k_unknown_id/revoke", nil)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error when revoking unknown key ID")
+	}
+
+	// Revoke valid key once
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/revoke", nil)
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("revoke key failed: %v", rec.Header().Get("Location"))
+	}
+
+	// Revoke already disabled key
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/revoke", nil)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error when revoking already revoked key")
+	}
+
+	// Test expiry_days in custom expiry
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-days"},
+		"expiry_choice": {"custom"},
+		"expiry_days":   {"90"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create with expiry_days 90 failed: %v", rec.Header().Get("Location"))
+	}
+
+	// Test invalid expiry_days
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":          {"bot-bad-days"},
+		"expiry_choice": {"custom"},
+		"expiry_days":   {"-10"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for negative expiry_days")
+	}
+
+	// Test enable_rate with value and units (h and d)
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":               {"bot-hours-rate"},
+		"enable_rate":        {"true"},
+		"rate_requests":      {"100"},
+		"rate_interval_val":  {"2"},
+		"rate_interval_unit": {"h"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create with interval unit 'h' failed: %v", rec.Header().Get("Location"))
+	}
+
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":               {"bot-days-rate"},
+		"enable_rate":        {"true"},
+		"rate_requests":      {"50"},
+		"rate_interval_val":  {"1"},
+		"rate_interval_unit": {"d"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("create with interval unit 'd' failed: %v", rec.Header().Get("Location"))
+	}
+
+	// Test enable_rate true with missing requests or invalid unit
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":        {"bot-missing-rate-reqs"},
+		"enable_rate": {"true"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for enable_rate true without requests")
+	}
+
+	rec = sendPost("/dashboard/keys/create", url.Values{
+		"name":               {"bot-bad-unit"},
+		"enable_rate":        {"true"},
+		"rate_requests":      {"10"},
+		"rate_interval_val":  {"1"},
+		"rate_interval_unit": {"w"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error for invalid interval unit 'w'")
+	}
+
+	// Update with enable_rate=false should clear rate limit
+	rec = sendPost("/dashboard/keys/"+targetKey.ID+"/update", url.Values{
+		"name":        {"target-key"},
+		"enable_rate": {"false"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("update enable_rate false failed: %v", rec.Header().Get("Location"))
+	}
+
+	// Test fallback path value parsing and empty keysPath fallback
+	h := NewHandler(deps)
+	recDirect := httptest.NewRecorder()
+	reqDirect := httptest.NewRequest(http.MethodPost, "/dashboard/keys/k_unknown_direct/revoke", nil)
+	reqDirect.Host = "127.0.0.1:8787"
+	h.handleKeyRevoke(recDirect, reqDirect)
+	if recDirect.Code != http.StatusSeeOther {
+		t.Errorf("expected redirect on direct handleKeyRevoke")
+	}
+
+	emptyDeps := &Deps{}
+	hEmpty := NewHandler(emptyDeps)
+	p := hEmpty.getKeysPath()
+	if !strings.HasSuffix(p, "keys.json") {
+		t.Errorf("expected default getKeysPath to end with keys.json, got %s", p)
 	}
 }

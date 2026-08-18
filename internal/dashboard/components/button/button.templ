@@ -31,6 +31,8 @@ const (
 	SizeSm      Size = "sm"
 	SizeLg      Size = "lg"
 	SizeIcon    Size = "icon"
+	SizeIconSm  Size = "icon-sm"
+	SizeIconLg  Size = "icon-lg"
 )
 
 type Props struct {
@@ -138,6 +140,10 @@ func (b Props) sizeClasses() string {
 		return "h-10 rounded-md px-6 has-[>svg]:px-4"
 	case SizeIcon:
 		return "size-9"
+	case SizeIconSm:
+		return "size-8"
+	case SizeIconLg:
+		return "size-10"
 	default: // SizeDefault
 		return "h-9 px-4 py-2 has-[>svg]:px-3"
 	}

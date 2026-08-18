@@ -133,8 +133,8 @@ type HealthStore interface {
 // KeyVerifier authenticates inbound requests.
 type KeyVerifier interface {
 	// Verify checks the bearer token and returns the key identifier if valid.
-	// Returns an error describing why verification failed (absent, unknown, disabled, expired, scope).
-	Verify(token string, surface string, model string) (keyID string, err error)
+	// Returns an error describing why verification failed (absent, unknown, disabled, expired).
+	Verify(token string) (keyID string, err error)
 }
 
 // RateLimiter checks per-key rate limits.

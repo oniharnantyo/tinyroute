@@ -41,6 +41,8 @@ const (
 	SizeSm      Size = "sm"
 	SizeLg      Size = "lg"
 	SizeIcon    Size = "icon"
+	SizeIconSm  Size = "icon-sm"
+	SizeIconLg  Size = "icon-lg"
 )
 
 type Props struct {
@@ -114,7 +116,7 @@ func Button(props ...Props) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 61, Col: 13}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 63, Col: 13}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -132,7 +134,7 @@ func Button(props ...Props) templ.Component {
 			var templ_7745c5c3_Var4 templ.SafeURL
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(p.Href))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 63, Col: 31}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 65, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -150,7 +152,7 @@ func Button(props ...Props) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Target)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 65, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 67, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 				if templ_7745c5c3_Err != nil {
@@ -223,7 +225,7 @@ func Button(props ...Props) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 87, Col: 13}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 89, Col: 13}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 				if templ_7745c5c3_Err != nil {
@@ -259,7 +261,7 @@ func Button(props ...Props) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(p.Type))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 103, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 105, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
@@ -278,7 +280,7 @@ func Button(props ...Props) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.Form)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 106, Col: 17}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/components/button/button.templ`, Line: 108, Col: 17}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 				if templ_7745c5c3_Err != nil {
@@ -341,6 +343,10 @@ func (b Props) sizeClasses() string {
 		return "h-10 rounded-md px-6 has-[>svg]:px-4"
 	case SizeIcon:
 		return "size-9"
+	case SizeIconSm:
+		return "size-8"
+	case SizeIconLg:
+		return "size-10"
 	default: // SizeDefault
 		return "h-9 px-4 py-2 has-[>svg]:px-3"
 	}

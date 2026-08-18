@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -979,6 +980,14 @@ func cmdKeys() *cli.Command {
 						Name:  "name",
 						Usage: "Display name for the new key",
 					},
+					&cli.StringFlag{
+						Name:  "expires",
+						Usage: "Expiry duration (e.g. 168h) or RFC3339 timestamp",
+					},
+					&cli.StringFlag{
+						Name:  "rate",
+						Usage: "Rate limit as requests/interval (e.g. 60/1m)",
+					},
 					&cli.BoolFlag{
 						Name:    "interactive",
 						Aliases: []string{"i"},
@@ -998,6 +1007,12 @@ func cmdKeys() *cli.Command {
 					args := []string{}
 					if name := cmd.String("name"); name != "" {
 						args = append(args, "--name="+name)
+					}
+					if expires := cmd.String("expires"); expires != "" {
+						args = append(args, "--expires="+expires)
+					}
+					if rate := cmd.String("rate"); rate != "" {
+						args = append(args, "--rate="+rate)
 					}
 					if cmd.IsSet("interactive") && !cmd.Bool("interactive") {
 						args = append(args, "--no-interactive")
@@ -1061,6 +1076,8 @@ func cmdKeys() *cli.Command {
 func cmdKeysCreate(args []string) error {
 	fs := flag.NewFlagSet("keys create", flag.ContinueOnError)
 	name := fs.String("name", "", "display name for the new key")
+	expiresFlag := fs.String("expires", "", "expiry duration (e.g. 168h) or RFC3339 timestamp")
+	rateFlag := fs.String("rate", "", "rate limit as requests/interval (e.g. 60/1m)")
 	interactiveFlag := fs.Bool("interactive", true, "enable interactive prompt for key name")
 	noInteractiveFlag := fs.Bool("no-interactive", false, "disable interactive prompt")
 	forceFlag := fs.Bool("force", false, "skip interactive prompt")
@@ -1077,6 +1094,38 @@ func cmdKeysCreate(args []string) error {
 		}
 	}
 
+	var opts []auth.KeyOpt
+	if *expiresFlag != "" {
+		expStr := *expiresFlag
+		if d, err := time.ParseDuration(expStr); err == nil {
+			exp := time.Now().Add(d)
+			opts = append(opts, auth.WithExpires(&exp))
+		} else if t, err := time.Parse(time.RFC3339, expStr); err == nil {
+			opts = append(opts, auth.WithExpires(&t))
+		} else {
+			return fmt.Errorf("invalid --expires format: must be duration (e.g. 168h) or RFC3339 timestamp")
+		}
+	}
+
+	if *rateFlag != "" {
+		parts := strings.Split(*rateFlag, "/")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid --rate format (expected count/interval, e.g. 60/1m)")
+		}
+		requests, err := strconv.Atoi(parts[0])
+		if err != nil || requests <= 0 {
+			return fmt.Errorf("invalid --rate requests count: %s", parts[0])
+		}
+		interval := parts[1]
+		if _, err := time.ParseDuration(interval); err != nil {
+			return fmt.Errorf("invalid --rate interval %q: %w", interval, err)
+		}
+		opts = append(opts, auth.WithRate(&auth.RateSpec{
+			Requests: requests,
+			Interval: interval,
+		}))
+	}
+
 	svc, err := config.LoadService()
 	if err != nil {
 		return fmt.Errorf("load service config: %w", err)
@@ -1087,7 +1136,7 @@ func cmdKeysCreate(args []string) error {
 		return err
 	}
 
-	plaintext, key, err := auth.GenerateKey(keyName)
+	plaintext, key, err := auth.GenerateKey(keyName, opts...)
 	if err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
@@ -1121,26 +1170,42 @@ func cmdKeysList(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(kf.Keys) == 0 {
-		fmt.Println("no keys created yet — run: tinyroute keys create")
+
+	var activeKeys []auth.Key
+	for _, k := range kf.Keys {
+		if !k.Disabled {
+			activeKeys = append(activeKeys, k)
+		}
+	}
+
+	if len(activeKeys) == 0 {
+		if len(kf.Keys) == 0 {
+			fmt.Println("no keys created yet — run: tinyroute keys create")
+		} else {
+			fmt.Println("no active keys found (all keys have been revoked) — run: tinyroute keys create")
+		}
 		return nil
 	}
 
 	lastUse := deriveLastUse(svc.HistoryDBPath)
 
 	tw := newTabWriter()
-	fmt.Fprintln(tw, "ID\tNAME\tPREFIX\tCREATED\tEXPIRES\tDISABLED\tLAST USE")
-	for _, k := range kf.Keys {
+	fmt.Fprintln(tw, "ID\tNAME\tPREFIX\tCREATED\tEXPIRES\tRATE\tLAST USE")
+	for _, k := range activeKeys {
 		expires := "-"
 		if k.Expires != nil {
 			expires = k.Expires.Format(time.RFC3339)
+		}
+		rate := "-"
+		if k.Rate != nil {
+			rate = fmt.Sprintf("%d/%s", k.Rate.Requests, k.Rate.Interval)
 		}
 		last := "never"
 		if t, ok := lastUse[k.ID]; ok {
 			last = t.Format(time.RFC3339)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%v\t%s\n",
-			k.ID, k.Name, k.Prefix, k.Created.Format(time.RFC3339), expires, k.Disabled, last)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			k.ID, k.Name, k.Prefix, k.Created.Format(time.RFC3339), expires, rate, last)
 	}
 	return tw.Flush()
 }
@@ -1174,26 +1239,10 @@ func cmdKeysRevoke(args []string) error {
 		return fmt.Errorf("load service config: %w", err)
 	}
 
-	kf, err := loadKeyFile(svc.KeysPath)
-	if err != nil {
+	if err := auth.RevokeKey(svc.KeysPath, id); err != nil {
 		return err
 	}
 
-	found := false
-	for i := range kf.Keys {
-		if kf.Keys[i].ID == id {
-			kf.Keys[i].Disabled = true
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("no key with id %q", id)
-	}
-
-	if err := auth.WriteKeyFile(svc.KeysPath, kf); err != nil {
-		return fmt.Errorf("write %s: %w", svc.KeysPath, err)
-	}
 	fmt.Printf("revoked key %s\n", id)
 	return nil
 }

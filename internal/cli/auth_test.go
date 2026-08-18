@@ -398,6 +398,7 @@ func TestBuildAuthorizeURL(t *testing.T) {
 	})
 
 	t.Run("Antigravity", func(t *testing.T) {
+		t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_ID", "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com")
 		p := preset.Get("antigravity")
 		if p == nil {
 			t.Fatal("antigravity preset not found")

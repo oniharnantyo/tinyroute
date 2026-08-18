@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"command grep -rln \\\"WriteModels\\\\|core.Dialect\\\\|ParseRequest(body \\\\[\\\\]byte)\\\" /Users/oniharnantyo/projects/tinyroute/internal --include=\\\"*_test.go\\\" 2>/dev/null; echo \\\"=== fake dialec...",
-  "error": "Exit code 1\n\u001b]697;DoneSourcing\u0007/Users/oniharnantyo/projects/tinyroute/internal/proxy/proxy_test.go\n/Users/oniharnantyo/projects/tinyroute/internal/cli/agent_integration_test.go\n/Users/oniharnantyo/projects/tinyroute/internal/cli/serve_test.go\n/Users/oniharnantyo/projects/tinyroute/internal/dialect/openairesponses/openairesponses_test.go\n/Users/oniharnantyo/projects/tinyroute/internal/dialect/anthropic/anthropic_test.go\n/Users/oniharnantyo/projects/tinyroute/internal/dialect/openai/models_test.go...",
-  "timestamp": "2026-08-03T14:44:26.409Z",
-  "retry_count": 1
-}

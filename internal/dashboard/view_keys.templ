@@ -1,63 +1,660 @@
 package dashboard
 
+import (
+	"fmt"
+	"time"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dialog"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/table"
+)
+
 type KeyItem struct {
-	ID        string
-	Masked    string
-	Scopes    []string
-	RateSpec  string
-	LastUsed  string
+	ID           string
+	Name         string
+	Prefix       string
+	Masked       string
+	Secret       string
+	RateSpec     string
+	RateReqs     int
+	RateIntv     string
+	RateIntvVal  int
+	RateIntvUnit string
+	Expires      string
+	ExpiresAt    *time.Time
+	Status       string // "active" or "inactive"
+	LastUsed     string
 }
 
 type KeysPageData struct {
-	Keys []KeyItem
+	Keys       []KeyItem
+	Error      string
+	Flash      string
+	ListenAddr string
 }
 
 templ KeysPage(data KeysPageData) {
 	<div class="space-y-6">
 		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 			<div>
-				<h2 class="text-xl font-bold tracking-tight text-white">API Keys Management</h2>
-				<p class="text-xs text-slate-400">View configured client authorization keys and rate limit profiles</p>
+				<h2 class="text-xl font-bold tracking-tight text-foreground">API Keys Management</h2>
+				<p class="text-xs text-muted-foreground">Manage client authentication keys, rate limits, and access lifecycles</p>
 			</div>
+
+			<!-- Create Key Dialog Trigger -->
+			@dialog.Trigger(dialog.TriggerProps{For: "dialog-create-key"}) {
+				@button.Button(button.Props{Class: "shadow-sm gap-2", Type: button.TypeButton}) {
+					@icon.Plus(icon.Props{Class: "size-4"})
+					<span>Create Key</span>
+				}
+			}
 		</div>
 
 		if len(data.Keys) == 0 {
-			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-12 text-center space-y-2">
-				<p class="text-xs text-slate-400">No client API keys registered in keys.json.</p>
-			</div>
+			@empty.Empty() {
+				@empty.Header() {
+					@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+						@icon.Key()
+					}
+					@empty.Title() { No API keys found }
+					@empty.Description() { Create an API key to allow clients and bots to connect to tinyroute. }
+				}
+				@dialog.Trigger(dialog.TriggerProps{For: "dialog-create-key"}) {
+					@button.Button(button.Props{Class: "gap-2", Type: button.TypeButton}) {
+						@icon.Plus(icon.Props{Class: "size-4"})
+						<span>Create API Key</span>
+					}
+				}
+			}
 		} else {
-			<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+			@card.Card() {
 				<div class="overflow-x-auto">
-					<table class="w-full text-left border-collapse text-xs">
-						<thead>
-							<tr class="border-b border-slate-800 text-slate-400 font-medium uppercase tracking-wider">
-								<th class="py-3 px-4">Key ID</th>
-								<th class="py-3 px-4">Masked Secret</th>
-								<th class="py-3 px-4">Scopes</th>
-								<th class="py-3 px-4">Rate Spec</th>
-								<th class="py-3 px-4">Last Activity</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-slate-800/60 font-mono">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Name
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Key ID
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Secret
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Rate
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Expires
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs"}) {
+									Status
+								}
+								@table.Head(table.HeadProps{Class: "py-3 px-4 font-semibold uppercase tracking-wider text-xs text-right"}) {
+									Actions
+								}
+							}
+						}
+						@table.Body(table.BodyProps{Class: "text-xs"}) {
 							for _, k := range data.Keys {
-								<tr class="hover:bg-slate-800/30 transition-colors">
-									<td class="py-3.5 px-4 font-bold text-indigo-300">{ k.ID }</td>
-									<td class="py-3.5 px-4 text-slate-400 font-mono">{ k.Masked }</td>
-									<td class="py-3.5 px-4">
-										<div class="flex items-center space-x-1 flex-wrap gap-1">
-											for _, s := range k.Scopes {
-												<span class="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[11px] font-medium">{ s }</span>
+								@table.Row() {
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 font-semibold text-foreground font-sans"}) {
+										{ k.Name }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 font-mono text-muted-foreground"}) {
+										{ k.ID }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 font-mono"}) {
+										<div class="flex items-center gap-1.5">
+											<span id={ "masked-" + k.ID } class="text-muted-foreground">{ k.Masked }</span>
+											<span id={ "revealed-" + k.ID } class="hidden text-foreground font-mono select-all bg-muted/40 px-1 py-0.5 rounded">{ k.Secret }</span>
+											if k.Secret != "" {
+												<button
+													type="button"
+													data-action="toggle-secret"
+													data-key-id={ k.ID }
+													title="Reveal / Mask Secret"
+													class="p-1 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+												>
+													<span id={ "eye-icon-" + k.ID } class="inline-flex">
+														@icon.Eye(icon.Props{Class: "size-3.5"})
+													</span>
+													<span id={ "eye-off-icon-" + k.ID } class="hidden inline-flex">
+														@icon.EyeOff(icon.Props{Class: "size-3.5"})
+													</span>
+												</button>
+												<button
+													type="button"
+													data-action="copy-secret"
+													data-secret={ k.Secret }
+													title="Copy Plaintext Secret"
+													class="p-1 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+												>
+													<span class="copy-icon inline-flex">
+														@icon.Copy(icon.Props{Class: "size-3.5"})
+													</span>
+													<span class="check-icon hidden text-emerald-500 inline-flex">
+														@icon.Check(icon.Props{Class: "size-3.5"})
+													</span>
+												</button>
 											}
 										</div>
-									</td>
-									<td class="py-3.5 px-4 text-slate-300">{ k.RateSpec }</td>
-									<td class="py-3.5 px-4 text-slate-400">{ k.LastUsed }</td>
-								</tr>
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 text-foreground/80 font-mono"}) {
+										{ k.RateSpec }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 text-muted-foreground"}) {
+										{ k.Expires }
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4"}) {
+										if k.Status == "active" {
+											@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess}) {
+												active
+											}
+										} else {
+											@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusNeutral}) {
+												inactive
+											}
+										}
+									}
+									@table.Cell(table.CellProps{Class: "py-3.5 px-4 text-right"}) {
+										<div class="flex items-center justify-end gap-1">
+											<!-- Edit Key Trigger -->
+											@dialog.Trigger(dialog.TriggerProps{For: "dialog-edit-" + k.ID}) {
+												@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 px-2 text-xs gap-1", Type: button.TypeButton}) {
+													@icon.Pencil(icon.Props{Class: "size-3.5"})
+													<span>Edit</span>
+												}
+											}
+
+											<!-- Revoke Key Trigger -->
+											@dialog.Trigger(dialog.TriggerProps{For: "dialog-revoke-" + k.ID}) {
+												@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 gap-1", Type: button.TypeButton}) {
+													@icon.Trash2(icon.Props{Class: "size-3.5"})
+													<span>Revoke</span>
+												}
+											}
+										</div>
+									}
+								}
 							}
-						</tbody>
-					</table>
+						}
+					}
 				</div>
-			</div>
+			}
+		}
+
+		<!-- Modals / Dialogs (Placed at page root level for clean DOM hierarchy) -->
+
+		<!-- 1. Create Key Dialog -->
+		@dialog.Dialog(dialog.Props{ID: "dialog-create-key"}) {
+			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						Create API Key
+					}
+					@dialog.Description() {
+						Generate a new API key for authenticating client requests against the gateway.
+					}
+				}
+				<form method="POST" action="/dashboard/keys/create" class="space-y-4 mt-2">
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "key-name", Class: "text-xs font-medium text-foreground"}) {
+							Display Name <span class="text-destructive">*</span>
+						}
+						@input.Input(input.Props{
+							ID:          "key-name",
+							Name:        "name",
+							Placeholder: "e.g. laptop-client, ci-bot",
+							Required:    true,
+						})
+					</div>
+
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "create-expiry-choice", Class: "text-xs font-medium text-foreground"}) {
+							Expiration
+						}
+						<select
+							id="create-expiry-choice"
+							name="expiry_choice"
+							class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/50"
+						>
+							<option value="never" selected class="bg-popover text-popover-foreground">Never</option>
+							<option value="7d" class="bg-popover text-popover-foreground">7 Days</option>
+							<option value="30d" class="bg-popover text-popover-foreground">30 Days</option>
+							<option value="custom" class="bg-popover text-popover-foreground">Custom (Days)</option>
+						</select>
+						<div class="custom-expiry-wrap hidden mt-2 space-y-1">
+							@label.Label(label.Props{For: "create-expiry-days", Class: "text-[11px] text-muted-foreground"}) {
+								Expires in Days
+							}
+							@input.Input(input.Props{
+								ID:          "create-expiry-days",
+								Name:        "expiry_days",
+								Type:        "number",
+								Placeholder: "e.g. 90",
+								Attributes:  templ.Attributes{"min": "1"},
+							})
+						</div>
+					</div>
+
+					<div class="space-y-3 pt-1">
+						<input type="hidden" name="rate_section_present" value="true"/>
+						<div class="flex items-center gap-2">
+							<input
+								type="checkbox"
+								id="create-enable-rate"
+								name="enable_rate"
+								value="true"
+								class="enable-rate-checkbox rounded border-border size-4 text-primary focus:ring-primary cursor-pointer"
+							/>
+							<label for="create-enable-rate" class="text-xs font-medium text-foreground cursor-pointer select-none">
+								Enable Rate Limit
+							</label>
+						</div>
+						<div class="rate-fields-wrap opacity-50 pointer-events-none space-y-3 transition-opacity">
+							<div class="space-y-1.5">
+								@label.Label(label.Props{For: "create-rate-requests", Class: "text-xs font-medium text-foreground"}) {
+									Max Requests <span class="text-muted-foreground font-normal">(allowed per window)</span>
+								}
+								@input.Input(input.Props{
+									ID:          "create-rate-requests",
+									Name:        "rate_requests",
+									Type:        input.TypeNumber,
+									Placeholder: "e.g. 60",
+									Disabled:    true,
+									Attributes:  templ.Attributes{"min": "1"},
+								})
+							</div>
+							<div class="space-y-1.5">
+								@label.Label(label.Props{For: "create-rate-interval-val", Class: "text-xs font-medium text-foreground"}) {
+									Time Interval Window
+								}
+								<div class="grid grid-cols-2 gap-2">
+									@input.Input(input.Props{
+										ID:          "create-rate-interval-val",
+										Name:        "rate_interval_val",
+										Type:        input.TypeNumber,
+										Placeholder: "1",
+										Value:       "1",
+										Disabled:    true,
+										Attributes:  templ.Attributes{"min": "1"},
+									})
+									<select
+										id="create-rate-interval-unit"
+										name="rate_interval_unit"
+										disabled
+										class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/50"
+									>
+										<option value="s" class="bg-popover text-popover-foreground">Seconds (s)</option>
+										<option value="m" selected class="bg-popover text-popover-foreground">Minutes (m)</option>
+										<option value="h" class="bg-popover text-popover-foreground">Hours (h)</option>
+										<option value="d" class="bg-popover text-popover-foreground">Days (d)</option>
+									</select>
+								</div>
+							</div>
+							<p class="text-[11px] text-muted-foreground">Example: 60 requests per 1 Minute(s).</p>
+						</div>
+					</div>
+
+					@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4"}) {
+						@dialog.Close(dialog.CloseProps{For: "dialog-create-key"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+								Cancel
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							Create Key
+						}
+					}
+				</form>
+			}
+		}
+
+		<!-- 2. Edit & Revoke Dialogs for each key -->
+		for _, k := range data.Keys {
+			<!-- Edit Key Dialog -->
+			@dialog.Dialog(dialog.Props{ID: "dialog-edit-" + k.ID}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Edit API Key
+						}
+						@dialog.Description() {
+							Update configuration for key { k.ID }. Plaintext secret cannot be modified.
+						}
+					}
+					<form method="POST" action={ templ.SafeURL("/dashboard/keys/" + k.ID + "/update") } class="space-y-4 mt-2 text-left">
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "edit-key-name-" + k.ID, Class: "text-xs font-medium text-foreground"}) {
+								Display Name <span class="text-destructive">*</span>
+							}
+							@input.Input(input.Props{
+								ID:       "edit-key-name-" + k.ID,
+								Name:     "name",
+								Value:    k.Name,
+								Required: true,
+							})
+						</div>
+
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "edit-expiry-choice-" + k.ID, Class: "text-xs font-medium text-foreground"}) {
+								Expiration
+							}
+							<select
+								id={ "edit-expiry-choice-" + k.ID }
+								name="expiry_choice"
+								class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/50"
+							>
+								<option value="keep" selected class="bg-popover text-popover-foreground">Keep Current ({ k.Expires })</option>
+								<option value="never" class="bg-popover text-popover-foreground">Never</option>
+								<option value="7d" class="bg-popover text-popover-foreground">7 Days</option>
+								<option value="30d" class="bg-popover text-popover-foreground">30 Days</option>
+								<option value="custom" class="bg-popover text-popover-foreground">Custom (Days)</option>
+							</select>
+							<div id={ "edit-custom-expiry-wrap-" + k.ID } class="custom-expiry-wrap hidden mt-2 space-y-1">
+								@label.Label(label.Props{For: "edit-expiry-days-" + k.ID, Class: "text-[11px] text-muted-foreground"}) {
+									Expires in Days
+								}
+								@input.Input(input.Props{
+									ID:          "edit-expiry-days-" + k.ID,
+									Name:        "expiry_days",
+									Type:        input.TypeNumber,
+									Placeholder: "e.g. 90",
+									Attributes:  templ.Attributes{"min": "1"},
+								})
+							</div>
+						</div>
+
+						<div class="space-y-3 pt-1">
+							<input type="hidden" name="rate_section_present" value="true"/>
+							<div class="flex items-center gap-2">
+								<input
+									type="checkbox"
+									id={ "edit-enable-rate-" + k.ID }
+									name="enable_rate"
+									value="true"
+									checked?={ k.RateReqs > 0 }
+									class="enable-rate-checkbox rounded border-border size-4 text-primary focus:ring-primary cursor-pointer"
+								/>
+								<label for={ "edit-enable-rate-" + k.ID } class="text-xs font-medium text-foreground cursor-pointer select-none">
+									Enable Rate Limit
+								</label>
+							</div>
+							<div class={ "rate-fields-wrap space-y-3 transition-opacity", templ.KV("opacity-100", k.RateReqs > 0), templ.KV("opacity-50 pointer-events-none", k.RateReqs == 0) }>
+								<div class="space-y-1.5">
+									@label.Label(label.Props{For: "edit-rate-requests-" + k.ID, Class: "text-xs font-medium text-foreground"}) {
+										Max Requests <span class="text-muted-foreground font-normal">(allowed per window)</span>
+									}
+									if k.RateReqs > 0 {
+										@input.Input(input.Props{
+											ID:          "edit-rate-requests-" + k.ID,
+											Name:        "rate_requests",
+											Type:        input.TypeNumber,
+											Value:       fmt.Sprintf("%d", k.RateReqs),
+											Placeholder: "e.g. 60",
+											Attributes:  templ.Attributes{"min": "1"},
+										})
+									} else {
+										@input.Input(input.Props{
+											ID:          "edit-rate-requests-" + k.ID,
+											Name:        "rate_requests",
+											Type:        input.TypeNumber,
+											Placeholder: "e.g. 60",
+											Disabled:    true,
+											Attributes:  templ.Attributes{"min": "1"},
+										})
+									}
+								</div>
+								<div class="space-y-1.5">
+									@label.Label(label.Props{For: "edit-rate-interval-val-" + k.ID, Class: "text-xs font-medium text-foreground"}) {
+										Time Interval Window
+									}
+									<div class="grid grid-cols-2 gap-2">
+										@input.Input(input.Props{
+											ID:          "edit-rate-interval-val-" + k.ID,
+											Name:        "rate_interval_val",
+											Type:        input.TypeNumber,
+											Value:       fmt.Sprintf("%d", k.RateIntvVal),
+											Placeholder: "1",
+											Disabled:    k.RateReqs == 0,
+											Attributes:  templ.Attributes{"min": "1"},
+										})
+										<select
+											id={ "edit-rate-interval-unit-" + k.ID }
+											name="rate_interval_unit"
+											disabled?={ k.RateReqs == 0 }
+											class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/50"
+										>
+											<option value="s" selected?={ k.RateIntvUnit == "s" } class="bg-popover text-popover-foreground">Seconds (s)</option>
+											<option value="m" selected?={ k.RateIntvUnit == "m" || k.RateIntvUnit == "" } class="bg-popover text-popover-foreground">Minutes (m)</option>
+											<option value="h" selected?={ k.RateIntvUnit == "h" } class="bg-popover text-popover-foreground">Hours (h)</option>
+											<option value="d" selected?={ k.RateIntvUnit == "d" } class="bg-popover text-popover-foreground">Days (d)</option>
+										</select>
+									</div>
+								</div>
+								<p class="text-[11px] text-muted-foreground">Example: 60 requests per 1 Minute(s).</p>
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-edit-" + k.ID}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								Save Changes
+							}
+						}
+					</form>
+				}
+			}
+
+			<!-- Revoke Key Confirmation Dialog -->
+			@dialog.Dialog(dialog.Props{ID: "dialog-revoke-" + k.ID}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Revoke API Key
+						}
+						@dialog.Description() {
+							Are you sure you want to revoke key <strong class="text-foreground">{ k.Name }</strong> ({ k.ID })?
+						}
+					}
+					<div class="text-xs text-muted-foreground p-3 rounded-md bg-destructive/10 border border-destructive/20 space-y-1 mt-2 text-left">
+						<p class="font-medium text-destructive">Warning: This action is permanent.</p>
+						<p>Any client currently authenticating with this key will immediately be rejected on their next request. Revocation cannot be undone.</p>
+					</div>
+					<form method="POST" action={ templ.SafeURL("/dashboard/keys/" + k.ID + "/revoke") } class="mt-4">
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-revoke-" + k.ID}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Variant: button.VariantDestructive, Type: button.TypeSubmit}) {
+								Revoke Key
+							}
+						}
+					</form>
+				}
+			}
 		}
 	</div>
+
+	<script>
+		(function() {
+			function fallbackCopyText(text, onSuccess) {
+				try {
+					const textArea = document.createElement('textarea');
+					textArea.value = text;
+					textArea.style.position = 'fixed';
+					textArea.style.top = '0';
+					textArea.style.left = '0';
+					textArea.style.width = '2em';
+					textArea.style.height = '2em';
+					textArea.style.padding = '0';
+					textArea.style.border = 'none';
+					textArea.style.outline = 'none';
+					textArea.style.boxShadow = 'none';
+					textArea.style.background = 'transparent';
+					document.body.appendChild(textArea);
+					textArea.focus();
+					textArea.select();
+					const successful = document.execCommand('copy');
+					document.body.removeChild(textArea);
+					if (successful && onSuccess) {
+						onSuccess();
+					}
+				} catch (err) {
+					console.error('Fallback copy failed', err);
+				}
+			}
+
+			function copyToClipboard(text, onSuccess) {
+				if (!text) return;
+				if (navigator.clipboard && window.isSecureContext) {
+					navigator.clipboard.writeText(text).then(() => {
+						if (onSuccess) onSuccess();
+					}).catch(() => {
+						fallbackCopyText(text, onSuccess);
+					});
+				} else {
+					fallbackCopyText(text, onSuccess);
+				}
+			}
+
+			function syncRateFields(form, focusOnEnable) {
+				if (!form) return;
+				const enableCb = form.querySelector('input[name="enable_rate"]');
+				const rateWrap = form.querySelector('.rate-fields-wrap');
+				if (!enableCb || !rateWrap) return;
+				const isChecked = enableCb.checked;
+				if (isChecked) {
+					rateWrap.classList.remove('opacity-50', 'pointer-events-none');
+					rateWrap.classList.add('opacity-100', 'pointer-events-auto');
+				} else {
+					rateWrap.classList.remove('opacity-100', 'pointer-events-auto');
+					rateWrap.classList.add('opacity-50', 'pointer-events-none');
+				}
+				const inputs = rateWrap.querySelectorAll('input, select');
+				inputs.forEach(function(el) {
+					el.disabled = !isChecked;
+				});
+				if (isChecked && focusOnEnable) {
+					const reqInput = rateWrap.querySelector('input[name="rate_requests"]');
+					if (reqInput) reqInput.focus();
+				}
+			}
+
+			function syncExpiryFields(form, focusOnCustom) {
+				if (!form) return;
+				const select = form.querySelector('select[name="expiry_choice"]');
+				const customWrap = form.querySelector('.custom-expiry-wrap');
+				if (!select || !customWrap) return;
+				const isCustom = select.value === 'custom';
+				if (isCustom) {
+					customWrap.classList.remove('hidden');
+				} else {
+					customWrap.classList.add('hidden');
+				}
+				const daysInput = customWrap.querySelector('input');
+				if (daysInput) {
+					daysInput.disabled = !isCustom;
+					if (isCustom && focusOnCustom) {
+						daysInput.focus();
+					}
+				}
+			}
+
+			function syncAllForms() {
+				document.querySelectorAll('form').forEach(function(form) {
+					syncRateFields(form, false);
+					syncExpiryFields(form, false);
+				});
+			}
+
+			document.addEventListener('click', function(e) {
+				// 1. Toggle Secret Reveal / Mask
+				const toggleBtn = e.target.closest('[data-action="toggle-secret"]');
+				if (toggleBtn) {
+					e.preventDefault();
+					e.stopPropagation();
+					const id = toggleBtn.getAttribute('data-key-id');
+					if (!id) return;
+					const masked = document.getElementById('masked-' + id);
+					const revealed = document.getElementById('revealed-' + id);
+					const eye = document.getElementById('eye-icon-' + id);
+					const eyeOff = document.getElementById('eye-off-icon-' + id);
+					if (!masked || !revealed) return;
+
+					if (masked.classList.contains('hidden')) {
+						masked.classList.remove('hidden');
+						revealed.classList.add('hidden');
+						if (eye) eye.classList.remove('hidden');
+						if (eyeOff) eyeOff.classList.add('hidden');
+					} else {
+						masked.classList.add('hidden');
+						revealed.classList.remove('hidden');
+						if (eye) eye.classList.add('hidden');
+						if (eyeOff) eyeOff.classList.remove('hidden');
+					}
+					return;
+				}
+
+				// 2. Copy Secret
+				const copyBtn = e.target.closest('[data-action="copy-secret"]');
+				if (copyBtn) {
+					e.preventDefault();
+					e.stopPropagation();
+					const secret = copyBtn.getAttribute('data-secret');
+					if (!secret) return;
+
+					const copyIcon = copyBtn.querySelector('.copy-icon');
+					const checkIcon = copyBtn.querySelector('.check-icon');
+
+					copyToClipboard(secret, function() {
+						if (copyIcon && checkIcon) {
+							copyIcon.classList.add('hidden');
+							checkIcon.classList.remove('hidden');
+							setTimeout(function() {
+								copyIcon.classList.remove('hidden');
+								checkIcon.classList.add('hidden');
+							}, 1500);
+						}
+					});
+					return;
+				}
+
+				// 3. Dialog triggers -> ensure form state is synchronized when opened
+				const dialogTrigger = e.target.closest('[data-tui-dialog-trigger]');
+				if (dialogTrigger) {
+					setTimeout(syncAllForms, 50);
+				}
+			});
+
+			document.addEventListener('change', function(e) {
+				if (e.target && e.target.name === 'expiry_choice') {
+					syncExpiryFields(e.target.closest('form'), true);
+				}
+
+				if (e.target && e.target.name === 'enable_rate') {
+					syncRateFields(e.target.closest('form'), true);
+				}
+			});
+
+			if (document.readyState === 'loading') {
+				document.addEventListener('DOMContentLoaded', syncAllForms);
+			} else {
+				syncAllForms();
+			}
+		})();
+	</script>
 }
+

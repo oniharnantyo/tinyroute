@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"openspec list --json 2>/dev/null; echo \\\"---STATUS---\\\"; openspec status --change models-endpoint-conformance --json 2>/dev/null\",\"description\":\"List OpenSpec changes and check models-endp...",
-  "error": "Exit code 1\n\u001b]697;DoneSourcing\u0007{\n  \"changes\": [\n    {\n      \"name\": \"add-oauth-providers\",\n      \"completedTasks\": 33,\n      \"totalTasks\": 33,\n      \"lastModified\": \"2026-08-02T16:32:18.283Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"/Users/oniharnantyo/projects/tinyroute\",\n    \"source\": \"nearest\"\n  }\n}\n---STATUS---\n{\n  \"status\": [\n    {\n      \"severity\": \"error\",\n      \"code\": \"change_error\",\n      \"message\": \"Change 'models-endpoint-conformance' not found. Available chang...",
-  "timestamp": "2026-08-03T04:24:04.862Z",
-  "retry_count": 1
-}

@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"git stash pop\",\"description\":\"Restore the .env file with actual credentials\"}",
-  "error": "Exit code 128\nfatal: 'refs/stash@{0}' is not a stash-like commit",
-  "timestamp": "2026-08-12T15:22:57.176Z",
-  "retry_count": 1
-}

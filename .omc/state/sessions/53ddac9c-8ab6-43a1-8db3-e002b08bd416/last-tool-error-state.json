@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"sed -i.bak '/^func cmdSessions(args []string) error {/,/^}$/d' /Users/oniharnantyo/projects/tinyroute/commands.go\",\"description\":\"Remove duplicate cmdSessions from commands.go\"}",
-  "error": "Exit code 1\nsed: 1: \"/^func cmdSessions(args ...\": unbalanced brackets ([])",
-  "timestamp": "2026-08-01T04:33:57.240Z",
-  "retry_count": 1
-}
