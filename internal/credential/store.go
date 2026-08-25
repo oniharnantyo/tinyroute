@@ -27,6 +27,7 @@ type OAuthRecord struct {
 	DeviceID            string         `json:"device_id,omitempty"`
 	DeviceHeaderProfile string         `json:"device_header_profile,omitempty"`
 	UpdatedAt           time.Time      `json:"updated_at,omitempty"`
+	IdentityHint        string         `json:"-"`
 }
 
 // CredentialsFile is the JSON root structure for credentials.json.
@@ -113,13 +114,13 @@ func (w *fileWatcher[T]) maybeReload() {
 	if err != nil {
 		return
 	}
-	if !info.ModTime().After(w.mtime) {
+	if info.ModTime().Equal(w.mtime) {
 		return
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	info2, err := os.Stat(w.path)
-	if err != nil || !info2.ModTime().After(w.mtime) {
+	if err != nil || info2.ModTime().Equal(w.mtime) {
 		return
 	}
 	_ = w.reload()
@@ -200,21 +201,22 @@ func (s *Store) GetAccount(provider, account string) (OAuthRecord, bool) {
 }
 
 // Masked returns a copy of OAuthRecord with sensitive credentials (RefreshToken, AccessToken, ClientSecret) masked.
-func (r OAuthRecord) Masked() OAuthRecord {
-	cp := r
+func (rec OAuthRecord) Masked() OAuthRecord {
+	cp := rec
 	if cp.RefreshToken != "" {
-		cp.RefreshToken = maskSecretToken(cp.RefreshToken)
+		cp.RefreshToken = MaskSecretToken(cp.RefreshToken)
 	}
 	if cp.AccessToken != "" {
-		cp.AccessToken = maskSecretToken(cp.AccessToken)
+		cp.AccessToken = MaskSecretToken(cp.AccessToken)
 	}
 	if cp.ClientSecret != "" {
-		cp.ClientSecret = maskSecretToken(cp.ClientSecret)
+		cp.ClientSecret = MaskSecretToken(cp.ClientSecret)
 	}
 	return cp
 }
 
-func maskSecretToken(s string) string {
+// MaskSecretToken masks a credential or token for safe display.
+func MaskSecretToken(s string) string {
 	if len(s) <= 8 {
 		return "******"
 	}
@@ -279,7 +281,7 @@ func (s *Store) Save(record OAuthRecord) error {
 
 	err := writeCredentialsFile(s.filePath, cf)
 	if err == nil {
-		_ = s.watcher.Get()
+		_ = s.watcher.reload()
 	}
 	return err
 }
@@ -306,7 +308,7 @@ func (s *Store) Delete(key string) error {
 
 	err := writeCredentialsFile(s.filePath, cf)
 	if err == nil {
-		_ = s.watcher.Get()
+		_ = s.watcher.reload()
 	}
 	return err
 }
@@ -336,7 +338,7 @@ func (s *Store) DeleteProvider(provider string) error {
 
 	err := writeCredentialsFile(s.filePath, cf)
 	if err == nil {
-		_ = s.watcher.Get()
+		_ = s.watcher.reload()
 	}
 	return err
 }

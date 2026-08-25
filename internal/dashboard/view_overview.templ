@@ -2,36 +2,52 @@ package dashboard
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/chart"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/table"
+	"github.com/oniharnantyo/tinyroute/internal/history"
 )
 
-type ProviderHealthItem struct {
+type OverviewProviderItem struct {
 	Name          string
 	Dialect       string
 	Status        string // "healthy", "cooldown"
 	CooldownUntil string
-}
-
-type RecentFailureItem struct {
-	ID         string
-	Time       string
-	Provider   string
-	Model      string
-	StatusCode int
-	ErrorMsg   string
+	TotalRequests int64
+	SuccessRate   float64
 }
 
 type OverviewData struct {
+	ActiveWindow          string // "1h", "24h", "7d", "30d"
 	TotalRequests         int64
+	SuccessRequests       int64
 	SuccessRate           float64
 	TotalPromptTokens     int64
 	TotalCompletionTokens int64
-	ProviderHealthList    []ProviderHealthItem
-	RecentFailures        []RecentFailureItem
+	AvgLatencyMs          int64
+	ProviderTrafficList   []OverviewProviderItem
+	TopModels             []history.ModelStats
+	Buckets               []history.Bucket
+}
+
+func formatBucketLabel(t time.Time, window string) string {
+	switch window {
+	case "1h":
+		return t.Format("15:04")
+	case "24h":
+		return t.Format("15:04")
+	case "7d":
+		return t.Format("01/02 15:04")
+	case "30d":
+		return t.Format("01/02")
+	default:
+		return t.Format("15:04")
+	}
 }
 
 templ OverviewPage(data OverviewData) {
@@ -41,10 +57,24 @@ templ OverviewPage(data OverviewData) {
 				<h2 class="text-xl font-bold tracking-tight text-foreground">System Overview</h2>
 				<p class="text-xs text-muted-foreground">Live traffic statistics and provider health status</p>
 			</div>
-			<div class="flex items-center gap-2">
-				@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess, Class: "px-2.5 py-1 gap-1.5"}) {
-					<span class="size-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-					Gateway Active
+			<!-- Time Window Selector Tabs -->
+			<div class="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border">
+				for _, w := range []struct{ Key, Label string }{ {"1h", "1 Hour"}, {"24h", "24 Hours"}, {"7d", "7 Days"}, {"30d", "30 Days"} } {
+					if data.ActiveWindow == w.Key {
+						<a
+							href={ templ.SafeURL("?window=" + w.Key) }
+							class="bg-background text-foreground font-medium shadow-xs text-xs px-2.5 py-1 rounded-md transition-all"
+						>
+							{ w.Label }
+						</a>
+					} else {
+						<a
+							href={ templ.SafeURL("?window=" + w.Key) }
+							class="text-muted-foreground hover:text-foreground text-xs px-2.5 py-1 rounded-md transition-all"
+						>
+							{ w.Label }
+						</a>
+					}
 				}
 			</div>
 		</div>
@@ -53,72 +83,165 @@ templ OverviewPage(data OverviewData) {
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 			@components.KPICard(components.KPICardProps{
 				Title:       "Total Requests",
-				Value:       fmt.Sprintf("%d", data.TotalRequests),
-				Description: "Processed through gateway",
+				Value:       formatCompact(data.TotalRequests),
+				Description: fmt.Sprintf("Processed in %s window", data.ActiveWindow),
 				Icon:        icon.Activity,
+				Attributes:  templ.Attributes{"title": fmt.Sprintf("%d requests", data.TotalRequests)},
 			})
 
 			@components.KPICard(components.KPICardProps{
 				Title:       "Success Rate",
 				Value:       fmt.Sprintf("%.1f%%", data.SuccessRate),
-				Description: "Successful completions",
+				Description: fmt.Sprintf("%s successful", formatCompact(data.SuccessRequests)),
 				Icon:        icon.Check,
+				Attributes:  templ.Attributes{"title": fmt.Sprintf("%d / %d successful", data.SuccessRequests, data.TotalRequests)},
 			})
 
 			@components.KPICard(components.KPICardProps{
-				Title:       "Prompt Tokens",
-				Value:       fmt.Sprintf("%d", data.TotalPromptTokens),
-				Description: "Inbound prompt usage",
-				Icon:        icon.Server,
-			})
-
-			@components.KPICard(components.KPICardProps{
-				Title:       "Completion Tokens",
-				Value:       fmt.Sprintf("%d", data.TotalCompletionTokens),
-				Description: "Outbound completion usage",
+				Title:       "Token Usage",
+				Value:       formatCompact(data.TotalPromptTokens + data.TotalCompletionTokens),
+				Description: fmt.Sprintf("%s in / %s out", formatCompact(data.TotalPromptTokens), formatCompact(data.TotalCompletionTokens)),
 				Icon:        icon.Cpu,
+				Attributes:  templ.Attributes{"title": fmt.Sprintf("%d prompt + %d completion tokens", data.TotalPromptTokens, data.TotalCompletionTokens)},
+			})
+
+			@components.KPICard(components.KPICardProps{
+				Title:       "Average Latency",
+				Value:       fmt.Sprintf("%d ms", data.AvgLatencyMs),
+				Description: "Across window completions",
+				Icon:        icon.Clock,
+				Attributes:  templ.Attributes{"title": fmt.Sprintf("%d ms average latency", data.AvgLatencyMs)},
 			})
 		</div>
 
-		<!-- Provider Health & Recent Failures Grid -->
-		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-			<!-- Provider Health List -->
-			<div class="lg:col-span-1">
+		<!-- Traffic Chart -->
+		@card.Card() {
+			@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 border-b border-border pb-3"}) {
+				<div>
+					@card.Title(card.TitleProps{Class: "text-sm font-semibold flex items-center gap-2 text-foreground"}) {
+						@icon.ChartColumn(icon.Props{Class: "size-4 text-primary"})
+						Traffic Volume
+					}
+					@card.Description(card.DescriptionProps{Class: "text-xs text-muted-foreground mt-0.5"}) {
+						Request throughput over time
+					}
+				</div>
+				<span class="text-xs font-mono text-muted-foreground">{ fmt.Sprintf("%s window", data.ActiveWindow) }</span>
+			}
+			@card.Content(card.ContentProps{Class: "p-4"}) {
+				if len(data.Buckets) == 0 {
+					<div class="p-8">
+						@empty.Empty() {
+							@empty.Header() {
+								@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+									@icon.Activity()
+								}
+								@empty.Title() { No traffic recorded }
+								@empty.Description() { No requests recorded in this window. }
+							}
+						}
+					</div>
+				} else {
+					{{
+						chartData := make([]chart.Datum, len(data.Buckets))
+						for i, b := range data.Buckets {
+							timeLabel := formatBucketLabel(b.Timestamp, data.ActiveWindow)
+							chartData[i] = chart.Datum{
+								"time":     timeLabel,
+								"requests": b.Count,
+							}
+						}
+					}}
+					@chart.Container(chart.ContainerProps{
+						ID: "traffic",
+						Config: chart.Config{
+							{Key: "requests", Label: "Requests", Color: "var(--primary)"},
+						},
+						Class: "aspect-auto h-[240px] w-full",
+					}) {
+						@chart.BarChart(chart.BarChartProps{
+							Data: chartData,
+						}) {
+							@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+							@chart.XAxis(chart.XAxisProps{
+								DataKey:    "time",
+								TickLine:   false,
+								AxisLine:   false,
+								TickMargin: 8,
+							})
+							@chart.Tooltip(chart.TooltipProps{
+								Content: chart.TooltipContentProps{
+									HideLabel: false,
+								},
+							})
+							@chart.Bar(chart.BarProps{
+								DataKey: "requests",
+								Fill:    "var(--color-requests)",
+								Radius:  4.0,
+							})
+						}
+					}
+				}
+			}
+		}
+
+		<!-- Provider Health & Top Models Grid -->
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<!-- Provider Health & Traffic List -->
+			<div>
 				@card.Card() {
 					@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 border-b border-border pb-3"}) {
 						@card.Title(card.TitleProps{Class: "text-sm font-semibold flex items-center gap-2 text-foreground"}) {
 							@icon.Cpu(icon.Props{Class: "size-4 text-primary"})
-							Provider Health
+							Provider Health & Traffic
 						}
-						<span class="text-xs font-mono text-muted-foreground">{ fmt.Sprintf("%d total", len(data.ProviderHealthList)) }</span>
+						<span class="text-xs font-mono text-muted-foreground">{ fmt.Sprintf("%d configured", len(data.ProviderTrafficList)) }</span>
 					}
 
 					@card.Content(card.ContentProps{Class: "p-4"}) {
-						if len(data.ProviderHealthList) == 0 {
+						if len(data.ProviderTrafficList) == 0 {
 							<p class="text-xs text-muted-foreground text-center py-6">No providers configured</p>
 						} else {
 							<div class="space-y-2.5">
-								for _, p := range data.ProviderHealthList {
-									<div class="flex items-center justify-between p-3 bg-muted/40 border border-border rounded-lg text-xs">
+								for _, p := range data.ProviderTrafficList {
+									<a
+										href={ templ.SafeURL("/dashboard/providers/" + p.Name) }
+										class="flex items-center justify-between p-3 bg-muted/40 hover:bg-muted/70 border border-border rounded-lg text-xs transition-colors group"
+									>
 										<div class="space-y-0.5">
-											<div class="font-medium text-foreground">{ p.Name }</div>
+											<div class="font-medium text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5">
+												{ p.Name }
+												@icon.ChevronRight(icon.Props{Class: "size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"})
+											</div>
 											<div class="text-[11px] font-mono text-muted-foreground">{ p.Dialect }</div>
 										</div>
-										<div>
-											if p.Status == "healthy" {
-												@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess}) {
-													Healthy
+										<div class="flex items-center gap-3 text-right">
+											<div class="space-y-0.5 font-mono">
+												<div class="text-foreground font-medium">{ formatCompact(p.TotalRequests) } reqs</div>
+												<div class="text-[11px] text-muted-foreground">
+													if p.TotalRequests > 0 {
+														{ fmt.Sprintf("%.1f%% ok", p.SuccessRate) }
+													} else {
+														—
+													}
+												</div>
+											</div>
+											<div>
+												if p.Status == "healthy" {
+													@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusSuccess}) {
+														Healthy
+													}
+												} else {
+													@components.StatusBadge(components.StatusBadgeProps{
+														Variant:    components.StatusError,
+														Attributes: templ.Attributes{"title": "Cooldown until " + p.CooldownUntil},
+													}) {
+														Cooldown
+													}
 												}
-											} else {
-												@components.StatusBadge(components.StatusBadgeProps{
-													Variant:    components.StatusError,
-													Attributes: templ.Attributes{"title": "Cooldown until " + p.CooldownUntil},
-												}) {
-													Cooldown
-												}
-											}
+											</div>
 										</div>
-									</div>
+									</a>
 								}
 							</div>
 						}
@@ -126,27 +249,27 @@ templ OverviewPage(data OverviewData) {
 				}
 			</div>
 
-			<!-- Recent Failures Table -->
-			<div class="lg:col-span-2">
+			<!-- Top Models Ranked by Token Usage -->
+			<div>
 				@card.Card() {
 					@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 border-b border-border pb-3"}) {
 						@card.Title(card.TitleProps{Class: "text-sm font-semibold flex items-center gap-2 text-foreground"}) {
-							@icon.TriangleAlert(icon.Props{Class: "size-4 text-amber-400"})
-							Recent Failures
+							@icon.Layers(icon.Props{Class: "size-4 text-primary"})
+							Top Models by Usage
 						}
-						<span class="text-xs font-mono text-muted-foreground">Last 10 failures</span>
+						<span class="text-xs font-mono text-muted-foreground">{ fmt.Sprintf("%d models", len(data.TopModels)) }</span>
 					}
 
 					@card.Content(card.ContentProps{Class: "p-0"}) {
-						if len(data.RecentFailures) == 0 {
+						if len(data.TopModels) == 0 {
 							<div class="p-8">
 								@empty.Empty() {
 									@empty.Header() {
 										@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
-											@icon.Check()
+											@icon.Layers()
 										}
-										@empty.Title() { No recent failures }
-										@empty.Description() { All gateway requests succeeded smoothly. }
+										@empty.Title() { No model usage }
+										@empty.Description() { No token usage recorded in this window. }
 									}
 								}
 							</div>
@@ -156,44 +279,42 @@ templ OverviewPage(data OverviewData) {
 									@table.Header() {
 										@table.Row() {
 											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs"}) {
-												Time
-											}
-											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs"}) {
-												Provider
-											}
-											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs"}) {
 												Model
 											}
-											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs"}) {
-												Status
+											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs text-right"}) {
+												Prompt
 											}
-											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs"}) {
-												Error
+											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs text-right"}) {
+												Completion
+											}
+											@table.Head(table.HeadProps{Class: "py-2.5 px-3 font-semibold text-xs text-right"}) {
+												Total Tokens
 											}
 										}
 									}
 									@table.Body(table.BodyProps{Class: "font-mono text-xs"}) {
-										for _, f := range data.RecentFailures {
+										for _, m := range data.TopModels {
 											@table.Row() {
-												@table.Cell(table.CellProps{Class: "py-2.5 px-3 text-muted-foreground"}) {
-													{ f.Time }
-												}
 												@table.Cell(table.CellProps{Class: "py-2.5 px-3 text-foreground font-sans font-medium"}) {
-													{ f.Provider }
-												}
-												@table.Cell(table.CellProps{Class: "py-2.5 px-3 text-foreground/80"}) {
-													{ f.Model }
-												}
-												@table.Cell(table.CellProps{Class: "py-2.5 px-3"}) {
-													@components.StatusBadge(components.StatusBadgeProps{Variant: components.StatusError}) {
-														{ fmt.Sprintf("%d", f.StatusCode) }
-													}
+													{ m.Model }
 												}
 												@table.Cell(table.CellProps{
-													Class:      "py-2.5 px-3 text-muted-foreground truncate max-w-xs font-sans",
-													Attributes: templ.Attributes{"title": f.ErrorMsg},
+													Class:      "py-2.5 px-3 text-right text-muted-foreground",
+													Attributes: templ.Attributes{"title": fmt.Sprintf("%d tokens", m.InputTokens)},
 												}) {
-													{ f.ErrorMsg }
+													{ formatCompact(m.InputTokens) }
+												}
+												@table.Cell(table.CellProps{
+													Class:      "py-2.5 px-3 text-right text-muted-foreground",
+													Attributes: templ.Attributes{"title": fmt.Sprintf("%d tokens", m.OutputTokens)},
+												}) {
+													{ formatCompact(m.OutputTokens) }
+												}
+												@table.Cell(table.CellProps{
+													Class:      "py-2.5 px-3 text-right text-foreground font-semibold",
+													Attributes: templ.Attributes{"title": fmt.Sprintf("%d total tokens", m.TotalTokens)},
+												}) {
+													{ formatCompact(m.TotalTokens) }
 												}
 											}
 										}

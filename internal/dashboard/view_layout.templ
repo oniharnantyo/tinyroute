@@ -1,17 +1,42 @@
 package dashboard
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/toast"
 )
 
-templ Layout(title string, activeTab string, isDefaultPassword bool, content templ.Component) {
+type layoutConfig struct {
+	autoRefresh time.Duration
+}
+
+type LayoutOption func(*layoutConfig)
+
+// WithAutoRefresh configures the layout to emit a meta http-equiv refresh tag.
+func WithAutoRefresh(d time.Duration) LayoutOption {
+	return func(cfg *layoutConfig) {
+		cfg.autoRefresh = d
+	}
+}
+
+templ Layout(title string, activeTab string, isDefaultPassword bool, content templ.Component, opts ...LayoutOption) {
+	{{
+		var cfg layoutConfig
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+	}}
 	<!DOCTYPE html>
 	<html lang="en" class="h-full dark">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			if cfg.autoRefresh > 0 {
+				<meta http-equiv="refresh" content={ fmt.Sprintf("%d", int(cfg.autoRefresh.Seconds())) }/>
+			}
 			<title>{ title } - tinyroute Dashboard</title>
 			<link rel="stylesheet" href="/dashboard/assets/styles.css"/>
 			<!-- Component JS (dialog, popover, calendar, select, floating-ui,
@@ -53,7 +78,7 @@ templ Layout(title string, activeTab string, isDefaultPassword bool, content tem
 					<nav class="p-4 space-y-1">
 						@navItem("Overview", "/dashboard/overview", icon.LayoutDashboard, activeTab == "overview")
 						@navItem("Providers", "/dashboard/providers", icon.Cpu, activeTab == "providers")
-						@navItem("Routes", "/dashboard/routes", icon.Route, activeTab == "routes")
+						@navItem("Combos", "/dashboard/combos", icon.Layers, activeTab == "combos")
 						@navItem("History", "/dashboard/history", icon.History, activeTab == "history")
 						@navItem("API Keys", "/dashboard/keys", icon.Key, activeTab == "keys")
 						@navItem("Clients", "/dashboard/clients", icon.Terminal, activeTab == "clients")

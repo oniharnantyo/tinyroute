@@ -2,7 +2,6 @@ package route
 
 import (
 	"fmt"
-	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -10,57 +9,6 @@ import (
 	"github.com/oniharnantyo/tinyroute/internal/config"
 	"github.com/oniharnantyo/tinyroute/internal/core"
 )
-
-// Config holds route definitions. Obtained from config.Topology.
-type Config struct {
-	Routes []RouteEntry
-}
-
-// RouteEntry is a parsed route ready for matching.
-type RouteEntry struct {
-	From  string     // surface dialect name
-	Match string     // glob pattern against model name
-	Chain []core.Hop // parsed hops
-}
-
-// ParseRoutes converts raw route config strings into RouteEntries.
-func ParseRoutes(routes []RawRoute) ([]RouteEntry, error) {
-	entries := make([]RouteEntry, 0, len(routes))
-	for i, r := range routes {
-		hops, err := parseChain(r.Chain)
-		if err != nil {
-			return nil, fmt.Errorf("route[%d]: %w", i, err)
-		}
-		entries = append(entries, RouteEntry{
-			From:  r.From,
-			Match: r.Match,
-			Chain: hops,
-		})
-	}
-	return entries, nil
-}
-
-// RawRoute mirrors the JSON route structure for parsing.
-type RawRoute struct {
-	From  string
-	Match string
-	Chain []string
-}
-
-func parseChain(chain []string) ([]core.Hop, error) {
-	hops := make([]core.Hop, 0, len(chain))
-	for _, entry := range chain {
-		parts := strings.SplitN(entry, ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("malformed chain hop %q (expected provider:model)", entry)
-		}
-		hops = append(hops, core.Hop{
-			Provider: parts[0],
-			Model:    parts[1],
-		})
-	}
-	return hops, nil
-}
 
 // Option configures a Router.
 type Option func(*Router)
@@ -85,19 +33,17 @@ func WithTranslatable(predicate func(from, to string) bool) Option {
 
 // Router resolves requests to chains based on surface and model.
 type Router struct {
-	routes       []RouteEntry
 	providers    map[string]config.Provider
 	combos       map[string]config.Combo
 	translatable func(from, to string) bool
 }
 
-// New creates a Router from parsed route entries and topology providers.
-func New(routes []RouteEntry, providers map[string]config.Provider, opts ...Option) *Router {
+// New creates a Router from topology providers and options.
+func New(providers map[string]config.Provider, opts ...Option) *Router {
 	if providers == nil {
 		providers = make(map[string]config.Provider)
 	}
 	r := &Router{
-		routes:    routes,
 		providers: providers,
 		combos:    make(map[string]config.Combo),
 	}
@@ -114,26 +60,56 @@ func (r *Router) canTranslate(from, to string) bool {
 	return r.translatable(from, to)
 }
 
+func (r *Router) resolveCombo(surface string, cb config.Combo, targetModel string) (core.ResolvedRoute, error) {
+	if !cb.IsEnabled() {
+		return core.ResolvedRoute{}, fmt.Errorf("combo %q is disabled", cb.Name)
+	}
+	hops, err := r.expandCombo(surface, cb, make(map[string]bool))
+	if err != nil {
+		return core.ResolvedRoute{}, fmt.Errorf("combo %q resolution: %w", cb.Name, err)
+	}
+	if targetModel != "" {
+		for i := range hops {
+			if hops[i].Model == "$model" {
+				hops[i].Model = targetModel
+			}
+		}
+	}
+	if len(cb.Capabilities) > 0 {
+		hops = reorderCapabilities(hops, cb.Capabilities)
+	}
+	return core.ResolvedRoute{
+		Hops:         hops,
+		ComboName:    cb.Name,
+		Mode:         cb.Mode,
+		Capabilities: cb.Capabilities,
+	}, nil
+}
+
 // Resolve finds the matching route, provider@account:model, or combo resolution.
 func (r *Router) Resolve(surface string, model string) (core.ResolvedRoute, error) {
-	// 0. Direct combo resolution by combo name
-	if cb, isCombo := r.combos[model]; isCombo {
-		hops, err := r.expandCombo(surface, cb, make(map[string]bool))
-		if err != nil {
-			return core.ResolvedRoute{}, fmt.Errorf("combo %q resolution: %w", cb.Name, err)
+	// 0. combo: prefix key form resolution
+	if strings.HasPrefix(model, "combo:") {
+		remainder := strings.TrimPrefix(model, "combo:")
+		if cb, isCombo := r.combos[remainder]; isCombo {
+			return r.resolveCombo(surface, cb, "")
 		}
-		if len(cb.Capabilities) > 0 {
-			hops = reorderCapabilities(hops, cb.Capabilities)
+		if strings.Contains(remainder, ":") {
+			parts := strings.SplitN(remainder, ":", 2)
+			if cb, isCombo := r.combos[parts[0]]; isCombo {
+				return r.resolveCombo(surface, cb, parts[1])
+			}
 		}
-		return core.ResolvedRoute{
-			Hops:         hops,
-			ComboName:    cb.Name,
-			Mode:         cb.Mode,
-			Capabilities: cb.Capabilities,
-		}, nil
+		// If neither matched a declared combo, fall through to provider resolution
+		// (e.g. for a provider literally named "combo")
 	}
 
-	// 1. Direct provider[@account]:model prefix resolution
+	// 1. Direct combo resolution by bare combo name
+	if cb, isCombo := r.combos[model]; isCombo {
+		return r.resolveCombo(surface, cb, "")
+	}
+
+	// 2. Direct provider[@account]:model prefix resolution
 	if strings.Contains(model, ":") {
 		parts := strings.SplitN(model, ":", 2)
 		provSpec := parts[0]
@@ -148,24 +124,7 @@ func (r *Router) Resolve(surface string, model string) (core.ResolvedRoute, erro
 		}
 
 		if cb, isCombo := r.combos[provName]; isCombo {
-			hops, err := r.expandCombo(surface, cb, make(map[string]bool))
-			if err != nil {
-				return core.ResolvedRoute{}, fmt.Errorf("combo %q resolution: %w", cb.Name, err)
-			}
-			for i := range hops {
-				if hops[i].Model == "$model" {
-					hops[i].Model = targetModel
-				}
-			}
-			if len(cb.Capabilities) > 0 {
-				hops = reorderCapabilities(hops, cb.Capabilities)
-			}
-			return core.ResolvedRoute{
-				Hops:         hops,
-				ComboName:    cb.Name,
-				Mode:         cb.Mode,
-				Capabilities: cb.Capabilities,
-			}, nil
+			return r.resolveCombo(surface, cb, targetModel)
 		}
 
 		prov, ok := r.providers[provName]
@@ -223,39 +182,7 @@ func (r *Router) Resolve(surface string, model string) (core.ResolvedRoute, erro
 		}, nil
 	}
 
-	// 2. Fall back to explicit routes matching surface and model glob
-	for _, entry := range r.routes {
-		if entry.From != surface {
-			continue
-		}
-		matched, err := path.Match(entry.Match, model)
-		if err != nil {
-			continue // malformed glob, skip
-		}
-		if !matched {
-			continue
-		}
-		// Found a match - resolve $model tokens
-		hops := make([]core.Hop, len(entry.Chain))
-		for i, hop := range entry.Chain {
-			hops[i] = core.Hop{
-				Provider:     hop.Provider,
-				Account:      hop.Account,
-				Model:        hop.Model,
-				Mode:         hop.Mode,
-				Capabilities: hop.Capabilities,
-			}
-			if hops[i].Model == "$model" {
-				hops[i].Model = model
-			}
-			if prov, ok := r.providers[hop.Provider]; ok && prov.Dialect != "" && prov.Dialect != surface && !r.canTranslate(surface, prov.Dialect) {
-				return core.ResolvedRoute{}, fmt.Errorf("provider %q dialect %q does not match surface %q", hop.Provider, prov.Dialect, surface)
-			}
-		}
-		return core.ResolvedRoute{Hops: hops}, nil
-	}
-
-	return core.ResolvedRoute{}, fmt.Errorf("unprefixed model %q requires explicit route configuration", model)
+	return core.ResolvedRoute{}, fmt.Errorf("model %q is not a combo and has no provider prefix — use \"provider:model\" or define a combo", model)
 }
 
 func (r *Router) expandCombo(surface string, cb config.Combo, visited map[string]bool) ([]core.Hop, error) {
@@ -267,6 +194,9 @@ func (r *Router) expandCombo(surface string, cb config.Combo, visited map[string
 	var hops []core.Hop
 	for _, member := range cb.Members {
 		if subCb, isSubCombo := r.combos[member]; isSubCombo {
+			if !subCb.IsEnabled() {
+				continue
+			}
 			subHops, err := r.expandCombo(surface, subCb, visited)
 			if err != nil {
 				return nil, err
@@ -303,6 +233,9 @@ func (r *Router) expandCombo(surface string, cb config.Combo, visited map[string
 			Capabilities: cb.Capabilities,
 		})
 	}
+	if len(hops) == 0 {
+		return nil, fmt.Errorf("combo %q has no usable members", cb.Name)
+	}
 	return hops, nil
 }
 
@@ -336,17 +269,18 @@ func maxCapWeight(caps []string, weights map[string]int) int {
 	return max
 }
 
-// Models returns all concrete model names from route patterns, chain hops, provider whitelists, and combos
+// Models returns all concrete model names from provider whitelists and combos
 // that resolve successfully on the given surface dialect.
 func (r *Router) Models(surface string) []string {
 	seen := make(map[string]bool)
 	var candidates []string
 
-	// Add combos
+	// Add combos in key form
 	for cbName := range r.combos {
-		if !seen[cbName] {
-			seen[cbName] = true
-			candidates = append(candidates, cbName)
+		comboKey := "combo:" + cbName
+		if !seen[comboKey] {
+			seen[comboKey] = true
+			candidates = append(candidates, comboKey)
 		}
 	}
 
@@ -361,26 +295,6 @@ func (r *Router) Models(surface string) []string {
 			if !seen[m] {
 				seen[m] = true
 				candidates = append(candidates, m)
-			}
-		}
-	}
-
-	for _, entry := range r.routes {
-		if entry.From != surface {
-			continue
-		}
-		// Add concrete (non-glob) match patterns
-		if !strings.ContainsAny(entry.Match, "*?[") {
-			if !seen[entry.Match] {
-				seen[entry.Match] = true
-				candidates = append(candidates, entry.Match)
-			}
-		}
-		// Add concrete models from chain hops
-		for _, hop := range entry.Chain {
-			if hop.Model != "$model" && !seen[hop.Model] {
-				seen[hop.Model] = true
-				candidates = append(candidates, hop.Model)
 			}
 		}
 	}

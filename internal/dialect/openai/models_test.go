@@ -34,18 +34,13 @@ func TestModelsEndpoint_ModelListingAndResolution(t *testing.T) {
 			Models:  []string{"gpt-4o"},
 		},
 	}
-	rawRoutes := []route.RawRoute{
+	combos := []config.Combo{
 		{
-			From:  "openai",
-			Match: "fast",
-			Chain: []string{"openai:gpt-4o"},
+			Name:    "fast",
+			Members: []string{"openai:gpt-4o"},
 		},
 	}
-	entries, err := route.ParseRoutes(rawRoutes)
-	if err != nil {
-		t.Fatalf("ParseRoutes failed: %v", err)
-	}
-	r := route.New(entries, providers)
+	r := route.New(providers, route.WithCombos(combos))
 
 	mux := createModelsMux(func() (*route.Router, error) {
 		return r, nil
@@ -72,8 +67,11 @@ func TestModelsEndpoint_ModelListingAndResolution(t *testing.T) {
 	if !ids["openai:gpt-4o"] {
 		t.Errorf("expected openai:gpt-4o to be present in returned models")
 	}
-	if !ids["fast"] {
-		t.Errorf("expected fast to be present in returned models")
+	if !ids["combo:fast"] {
+		t.Errorf("expected combo:fast to be present in returned models")
+	}
+	if ids["fast"] {
+		t.Errorf("expected bare combo name 'fast' to be absent from returned models")
 	}
 	if ids["gpt-4o"] {
 		t.Errorf("expected bare gpt-4o to be absent from returned models")
@@ -94,7 +92,7 @@ func TestModelsEndpoint_StableFields(t *testing.T) {
 			Models:  []string{"gpt-4o"},
 		},
 	}
-	r := route.New(nil, providers)
+	r := route.New(providers)
 	mux := createModelsMux(func() (*route.Router, error) {
 		return r, nil
 	})
@@ -132,7 +130,7 @@ func TestModelsEndpoint_MethodNotAllowed(t *testing.T) {
 			Models:  []string{"gpt-4o"},
 		},
 	}
-	r := route.New(nil, providers)
+	r := route.New(providers)
 	mux := createModelsMux(func() (*route.Router, error) {
 		return r, nil
 	})

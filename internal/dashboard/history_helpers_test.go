@@ -260,3 +260,27 @@ func TestFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatCompact(t *testing.T) {
+	tests := []struct {
+		n        int64
+		expected string
+	}{
+		{0, "0"},
+		{50, "50"},
+		{999, "999"},
+		{1000, "1.0k"},
+		{1200, "1.2k"},
+		{2400000, "2.4M"},
+		{1500000000, "1.5B"},
+		{3000000000000, "3.0T"},
+		{-1200, "-1.2k"},
+	}
+
+	for _, tt := range tests {
+		got := formatCompact(tt.n)
+		if got != tt.expected {
+			t.Errorf("formatCompact(%d) = %q; want %q", tt.n, got, tt.expected)
+		}
+	}
+}

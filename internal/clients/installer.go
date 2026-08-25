@@ -127,6 +127,15 @@ func DiscoverModelsForDialect(_ string) []string {
 			}
 		}
 	}
+	for _, cb := range topo.Combos {
+		if cb.Name != "" {
+			key := "combo:" + cb.Name
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, key)
+			}
+		}
+	}
 	sort.Strings(result)
 	return result
 }

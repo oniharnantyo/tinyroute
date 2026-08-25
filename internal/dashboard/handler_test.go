@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,11 +15,13 @@ import (
 
 	"github.com/oniharnantyo/tinyroute/internal/auth"
 	"github.com/oniharnantyo/tinyroute/internal/config"
+	"github.com/oniharnantyo/tinyroute/internal/credential"
 	_ "github.com/oniharnantyo/tinyroute/internal/dialect/anthropic"
 	_ "github.com/oniharnantyo/tinyroute/internal/dialect/gemini"
 	_ "github.com/oniharnantyo/tinyroute/internal/dialect/openai"
 	_ "github.com/oniharnantyo/tinyroute/internal/dialect/openairesponses"
 	"github.com/oniharnantyo/tinyroute/internal/history"
+	"github.com/oniharnantyo/tinyroute/internal/preset"
 	"github.com/oniharnantyo/tinyroute/internal/route"
 )
 
@@ -69,6 +72,35 @@ func (m *mockHistoryQuerier) LastUseByKey(ctx context.Context) (map[string]time.
 	return map[string]time.Time{}, nil
 }
 
+type mockHistoryAggregator struct {
+	lastFrom     time.Time
+	lastTo       time.Time
+	lastBucketMs int64
+	stats        history.WindowStats
+	pStats       []history.ProviderStats
+	mStats       []history.ModelStats
+	buckets      []history.Bucket
+}
+
+func (m *mockHistoryAggregator) Stats(ctx context.Context, from, to time.Time) (history.WindowStats, error) {
+	m.lastFrom = from
+	m.lastTo = to
+	return m.stats, nil
+}
+
+func (m *mockHistoryAggregator) StatsByProvider(ctx context.Context, from, to time.Time) ([]history.ProviderStats, error) {
+	return m.pStats, nil
+}
+
+func (m *mockHistoryAggregator) StatsByModel(ctx context.Context, from, to time.Time) ([]history.ModelStats, error) {
+	return m.mStats, nil
+}
+
+func (m *mockHistoryAggregator) RequestBuckets(ctx context.Context, from, to time.Time, bucketMs int64) ([]history.Bucket, error) {
+	m.lastBucketMs = bucketMs
+	return m.buckets, nil
+}
+
 func setupTestMux(t *testing.T) (*http.ServeMux, *Deps, string) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
@@ -81,12 +113,7 @@ func setupTestMux(t *testing.T) (*http.ServeMux, *Deps, string) {
     base_url: https://api.openai.com/v1
     api_key: sk-test
     models:
-    - gpt-4o
-routes:
-- from: openai
-  match: '*'
-  chain:
-  - openai:gpt-4o`
+    - gpt-4o`
 	if err := os.WriteFile(configPath, []byte(initialConfig), 0600); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -115,19 +142,23 @@ routes:
 	loginLimiter := NewLoginLimiter()
 	healthStore := route.NewHealthStore(route.RealClock{}, filepath.Join(tmpDir, "state.json"))
 
+	credsPath := filepath.Join(tmpDir, "credentials.json")
+
 	deps := &Deps{
 		Service: config.Service{
 			ConfigPath:            configPath,
 			KeysPath:              keysPath,
 			DashboardPasswordPath: passPath,
+			CredentialsPath:       credsPath,
 		},
-		PasswordStore:   passStore,
-		SessionStore:    sessStore,
-		LoginLimiter:    loginLimiter,
-		TopologyWatcher: topoWatcher,
-		KeyWatcher:      keyWatcher,
-		HealthStore:     healthStore,
-		HistoryQuerier:  &mockHistoryQuerier{},
+		PasswordStore:     passStore,
+		SessionStore:      sessStore,
+		LoginLimiter:      loginLimiter,
+		TopologyWatcher:   topoWatcher,
+		KeyWatcher:        keyWatcher,
+		HealthStore:       healthStore,
+		HistoryQuerier:    &mockHistoryQuerier{},
+		HistoryAggregator: &mockHistoryAggregator{},
 	}
 
 	mux := http.NewServeMux()
@@ -156,6 +187,7 @@ func TestLoginViewRendering(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/login", nil)
 	rec := httptest.NewRecorder()
+
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -227,9 +259,13 @@ func TestLoginAndSessionFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200 OK for authenticated overview page, got %d", rec.Code)
 	}
+	overviewBody := rec.Body.String()
+	if strings.Contains(overviewBody, "/dashboard/routes") {
+		t.Errorf("expected sidebar to render no Routes entry, but found '/dashboard/routes' link")
+	}
 
-	// 4. Access all views
-	for _, path := range []string{"/dashboard/providers", "/dashboard/routes", "/dashboard/history", "/dashboard/keys", "/dashboard/settings"} {
+	// 4. Access all valid views
+	for _, path := range []string{"/dashboard/providers", "/dashboard/combos", "/dashboard/history", "/dashboard/keys", "/dashboard/settings", "/dashboard/clients"} {
 		req = httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(sessCookie)
 		rec = httptest.NewRecorder()
@@ -237,6 +273,15 @@ func TestLoginAndSessionFlow(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("expected status 200 OK for %s, got %d", path, rec.Code)
 		}
+	}
+
+	// Assert GET /dashboard/routes is gone (404 Not Found)
+	reqRoutes := httptest.NewRequest(http.MethodGet, "/dashboard/routes", nil)
+	reqRoutes.AddCookie(sessCookie)
+	recRoutes := httptest.NewRecorder()
+	mux.ServeHTTP(recRoutes, reqRoutes)
+	if recRoutes.Code != http.StatusNotFound {
+		t.Errorf("expected status 404 Not Found for /dashboard/routes, got %d", recRoutes.Code)
 	}
 
 	// 5. Logout
@@ -857,6 +902,101 @@ func TestDashboardOAuthRoutes(t *testing.T) {
 	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=Invalid+or+expired+OAuth+state") {
 		t.Errorf("expected state reuse to fail with invalid state error, got loc %s", rec.Header().Get("Location"))
 	}
+
+	// 7. Test PKCE OAuth success path + account resolution + topology update
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "at_mock_token_123",
+			"refresh_token": "rt_mock_token_123",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	testPreset := preset.Preset{
+		Name:              "testpkce",
+		DisplayName:       "Test PKCE Provider",
+		Dialect:           "openai",
+		BaseURL:           tokenServer.URL,
+		OAuthCapable:      true,
+		FlowType:          "pkce",
+		AuthorizeEndpoint: tokenServer.URL + "/authorize",
+		TokenEndpoint:     tokenServer.URL + "/token",
+		ClientID:          "test_client_id",
+	}
+	preset.Register(testPreset)
+
+	// First connect with explicit label "work"
+	req = httptest.NewRequest(http.MethodGet, "/dashboard/providers/testpkce/oauth/start?account=work", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect on start, got %d", rec.Code)
+	}
+	loc = rec.Header().Get("Location")
+	u, _ = url.Parse(loc)
+	st1 := u.Query().Get("state")
+
+	// Callback for first account
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/dashboard/oauth/callback?state=%s&code=test_code_1", st1), nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "Successfully+connected+account+%27work%27") {
+		t.Fatalf("expected successful connect for account 'work', got loc: %s", rec.Header().Get("Location"))
+	}
+
+	// Verify store & topology
+	cStore, _ := credential.NewStore(deps.Service.CredentialsPath)
+	rec1, ok := cStore.Get("testpkce/work")
+	if !ok || rec1.RefreshToken != "rt_mock_token_123" {
+		t.Fatalf("expected stored credential for testpkce/work, got %+v", rec1)
+	}
+
+	data, _ := os.ReadFile(deps.Service.ConfigPath)
+	topo, _ := config.ParseRawTopology(data)
+	p1, ok := topo.Providers["testpkce"]
+	if !ok || len(p1.Accounts) != 1 || p1.Accounts[0].Name != "work" {
+		t.Fatalf("expected topology accounts=[work], got %+v", p1.Accounts)
+	}
+
+	// Second connect without explicit label (auto-resolves slot account-2)
+	req = httptest.NewRequest(http.MethodGet, "/dashboard/providers/testpkce/oauth/start", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	loc = rec.Header().Get("Location")
+	u, _ = url.Parse(loc)
+	st2 := u.Query().Get("state")
+
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/dashboard/oauth/callback?state=%s&code=test_code_2", st2), nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "Successfully+connected+account+%27account-2%27") {
+		t.Fatalf("expected successful connect for account 'account-2', got loc: %s", rec.Header().Get("Location"))
+	}
+
+	// Verify both accounts exist in store and topology; first account untouched
+	cStore2, _ := credential.NewStore(deps.Service.CredentialsPath)
+	rec1Again, ok1 := cStore2.Get("testpkce/work")
+	rec2, ok2 := cStore2.Get("testpkce/account-2")
+	if !ok1 || !ok2 || rec1Again.RefreshToken != "rt_mock_token_123" || rec2.RefreshToken != "rt_mock_token_123" {
+		t.Fatalf("expected both accounts stored, got ok1=%v, ok2=%v, rec1=%+v, rec2=%+v", ok1, ok2, rec1Again, rec2)
+	}
+
+	data, _ = os.ReadFile(deps.Service.ConfigPath)
+	topo, _ = config.ParseRawTopology(data)
+	p2 := topo.Providers["testpkce"]
+	if len(p2.Accounts) != 2 || p2.Accounts[0].Name != "work" || p2.Accounts[1].Name != "account-2" {
+		t.Fatalf("expected topology accounts=[work, account-2], got %+v", p2.Accounts)
+	}
 }
 
 func TestProviderCredentialDelete(t *testing.T) {
@@ -960,11 +1100,11 @@ func TestLazyMaterializationMutations(t *testing.T) {
 		t.Errorf("expected success redirect, got error: %s", rec.Header().Get("Location"))
 	}
 
-	// Verify groq was materialized with the new APIKey
+	// Verify groq was materialized with the new account APIKey
 	data, _ := os.ReadFile(deps.Service.ConfigPath)
 	topo, _ := config.ParseRawTopology(data)
-	if p, ok := topo.Providers["groq"]; !ok || p.APIKey != "gsk_lazy_test_key" {
-		t.Errorf("expected groq materialized with api_key 'gsk_lazy_test_key', got %+v", p)
+	if p, ok := topo.Providers["groq"]; !ok || len(p.Accounts) == 0 || p.Accounts[0].APIKey != "gsk_lazy_test_key" {
+		t.Errorf("expected groq materialized with account api_key 'gsk_lazy_test_key', got %+v", p)
 	}
 
 	// 2. Whitelist model on unconfigured preset (anthropic)
@@ -1657,5 +1797,377 @@ func TestKeysManagementErrorPaths(t *testing.T) {
 	p := hEmpty.getKeysPath()
 	if !strings.HasSuffix(p, "keys.json") {
 		t.Errorf("expected default getKeysPath to end with keys.json, got %s", p)
+	}
+}
+
+func TestDashboardMultiAccountConnections(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	token := deps.SessionStore.CreateSession(1 * time.Hour)
+	cookie := &http.Cookie{Name: SessionCookieName, Value: token}
+
+	sendPost := func(path string, form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Host = "127.0.0.1:8787"
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	sendGet := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = "127.0.0.1:8787"
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Add first static API key for "openai" with explicit account "work"
+	rec := sendPost("/dashboard/providers/credential", url.Values{
+		"name":    {"openai"},
+		"api_key": {"sk-work-1234567890"},
+		"account": {"work"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("expected success saving 'work' account, got redirect: %v", rec.Header().Get("Location"))
+	}
+
+	// Verify topology
+	data, err := os.ReadFile(deps.Service.ConfigPath)
+	if err != nil {
+		t.Fatalf("failed reading config: %v", err)
+	}
+	topo, _ := config.ParseRawTopology(data)
+	prov := topo.Providers["openai"]
+	if len(prov.Accounts) != 1 || prov.Accounts[0].Name != "work" || prov.Accounts[0].APIKey != "sk-work-1234567890" {
+		t.Fatalf("expected openai accounts=[work], got %+v", prov.Accounts)
+	}
+
+	// 2. Add second static API key for "openai" without explicit label (auto-slot 'default')
+	rec = sendPost("/dashboard/providers/credential", url.Values{
+		"name":    {"openai"},
+		"api_key": {"sk-default-9876543210"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("expected success auto-resolving second account, got redirect: %v", rec.Header().Get("Location"))
+	}
+
+	data, _ = os.ReadFile(deps.Service.ConfigPath)
+	topo, _ = config.ParseRawTopology(data)
+	prov = topo.Providers["openai"]
+	if len(prov.Accounts) != 2 {
+		t.Fatalf("expected 2 accounts for openai, got %+v", prov.Accounts)
+	}
+
+	// 3. Rename account "work" -> "production"
+	rec = sendPost("/dashboard/providers/account/rename", url.Values{
+		"provider":    {"openai"},
+		"old_account": {"work"},
+		"new_account": {"production"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("expected success renaming account 'work' -> 'production', got: %v", rec.Header().Get("Location"))
+	}
+
+	data, _ = os.ReadFile(deps.Service.ConfigPath)
+	topo, _ = config.ParseRawTopology(data)
+	prov = topo.Providers["openai"]
+	foundProd := false
+	for _, a := range prov.Accounts {
+		if a.Name == "work" {
+			t.Errorf("found old account name 'work' in topology")
+		}
+		if a.Name == "production" {
+			foundProd = true
+			if a.APIKey != "sk-work-1234567890" {
+				t.Errorf("expected APIKey sk-work-1234567890 preserved on rename, got %s", a.APIKey)
+			}
+		}
+	}
+	if !foundProd {
+		t.Errorf("expected 'production' account in topology, got %+v", prov.Accounts)
+	}
+
+	// 4. Reject rename collision (renaming "production" -> "account-2" when "account-2" exists)
+	rec = sendPost("/dashboard/providers/account/rename", url.Values{
+		"provider":    {"openai"},
+		"old_account": {"production"},
+		"new_account": {"account-2"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "already+exists") {
+		t.Errorf("expected collision error when renaming to existing account, got %v", rec.Header().Get("Location"))
+	}
+
+	// 5. Reject invalid rename format
+	rec = sendPost("/dashboard/providers/account/rename", url.Values{
+		"provider":    {"openai"},
+		"old_account": {"production"},
+		"new_account": {"invalid name with spaces!"},
+	})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "Invalid+account+name") {
+		t.Errorf("expected invalid name error, got %v", rec.Header().Get("Location"))
+	}
+
+	// 6. Test OAuth store-first re-keying on rename
+	credStore, _ := credential.NewStore(deps.Service.CredentialsPath)
+	_ = credStore.Save(credential.OAuthRecord{
+		Provider:     "antigravity",
+		Account:      "user@example.com",
+		RefreshToken: "rt_token_12345",
+	})
+	data, _ = os.ReadFile(deps.Service.ConfigPath)
+	topo, _ = config.ParseRawTopology(data)
+	agProv := topo.Providers["antigravity"]
+	agProv = agProv.UpsertAccount(config.Account{
+		Name: "user@example.com",
+		Type: "oauth_refresh",
+	})
+	topo.Providers["antigravity"] = agProv
+	_ = config.WriteTopology(deps.Service.ConfigPath, topo)
+
+	rec = sendPost("/dashboard/providers/account/rename", url.Values{
+		"provider":    {"antigravity"},
+		"old_account": {"user@example.com"},
+		"new_account": {"team-account"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("expected success renaming oauth account, got %v", rec.Header().Get("Location"))
+	}
+
+	// Verify store has new key and not old key
+	newCredStore, _ := credential.NewStore(deps.Service.CredentialsPath)
+	if _, ok := newCredStore.Get("antigravity/user@example.com"); ok {
+		t.Errorf("expected old store key 'antigravity/user@example.com' to be deleted")
+	}
+	newRec, ok := newCredStore.Get("antigravity/team-account")
+	if !ok || newRec.RefreshToken != "rt_token_12345" {
+		t.Errorf("expected new store key 'antigravity/team-account' with token, got %+v", newRec)
+	}
+
+	// 7. Delete an account
+	rec = sendPost("/dashboard/providers/credential/delete", url.Values{
+		"name":    {"openai"},
+		"account": {"production"},
+		"type":    {"static"},
+	})
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("expected success deleting account 'production', got %v", rec.Header().Get("Location"))
+	}
+
+	data, _ = os.ReadFile(deps.Service.ConfigPath)
+	topo, _ = config.ParseRawTopology(data)
+	prov = topo.Providers["openai"]
+	for _, a := range prov.Accounts {
+		if a.Name == "production" {
+			t.Errorf("expected 'production' to be removed from topology, but found it")
+		}
+	}
+
+	// 8. Verify Provider Detail View renders remaining connections
+	rec = sendGet("/dashboard/providers/openai")
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK from provider detail view, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "default") {
+		t.Errorf("expected detail view body to contain account 'default', got body: %s", body)
+	}
+	if strings.Contains(body, "production") {
+		t.Errorf("expected detail view body NOT to contain removed account 'production'")
+	}
+
+	// 9. OAuth connection with topology linkage must render as OAuth, not Static Key
+	rec = sendGet("/dashboard/providers/antigravity")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from antigravity detail view, got %d", rec.Code)
+	}
+	agBody := rec.Body.String()
+	if !strings.Contains(agBody, "team-account") {
+		t.Fatalf("expected antigravity detail view to list account 'team-account', got body: %s", agBody)
+	}
+	if !strings.Contains(agBody, ">OAuth<") {
+		t.Errorf("expected OAuth badge for 'team-account' (store record + oauth_refresh topology entry), got Static Key instead")
+	}
+	if strings.Contains(agBody, "Static Key") {
+		t.Errorf("expected no 'Static Key' badge on antigravity page, got body: %s", agBody)
+	}
+}
+
+func TestDashboardProviderModelsFromAccountKey(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	sess := deps.SessionStore.CreateSession(time.Hour)
+
+	var gotAuth string
+	modelsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"zen-model-a"},{"id":"zen-model-b"}]}`))
+	}))
+	defer modelsServer.Close()
+
+	// Provider whose only credential is a static account key (no scalar api_key):
+	// the shape every dashboard add-key produces since the multi-account change.
+	rawTopo := config.Topology{Providers: map[string]config.Provider{
+		"stubprov": {
+			Dialect: "openai",
+			BaseURL: modelsServer.URL,
+			Accounts: []config.Account{
+				{Name: "work", Type: "static", APIKey: "sk-account-live-key"},
+			},
+		},
+	}}
+	if err := config.WriteTopology(deps.Service.ConfigPath, rawTopo); err != nil {
+		t.Fatalf("write topo: %v", err)
+	}
+	now := time.Now().Add(time.Second)
+	_ = os.Chtimes(deps.Service.ConfigPath, now, now)
+	_ = deps.TopologyWatcher.Get()
+
+	req := newAuthRequest(http.MethodGet, "/dashboard/providers/stubprov", nil, sess)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "zen-model-a") {
+		t.Errorf("expected live-fetched model 'zen-model-a' using the account key, got body: %s", body)
+	}
+	if gotAuth != "Bearer sk-account-live-key" {
+		t.Errorf("expected model fetch to authenticate with the account key, got Authorization %q", gotAuth)
+	}
+}
+
+func TestOverviewView_WindowParamAndDefaults(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	sess := deps.SessionStore.CreateSession(time.Hour)
+	agg := deps.HistoryAggregator.(*mockHistoryAggregator)
+
+	tests := []struct {
+		windowParam    string
+		expectedWindow string
+		expectedBucket int64
+	}{
+		{"1h", "1h", 5 * 60 * 1000},
+		{"24h", "24h", 60 * 60 * 1000},
+		{"7d", "7d", 6 * 60 * 60 * 1000},
+		{"30d", "30d", 24 * 60 * 60 * 1000},
+		{"invalid", "24h", 60 * 60 * 1000},
+		{"", "24h", 60 * 60 * 1000},
+	}
+
+	for _, tt := range tests {
+		t.Run("window_"+tt.windowParam, func(t *testing.T) {
+			path := "/dashboard/overview"
+			if tt.windowParam != "" {
+				path += "?window=" + tt.windowParam
+			}
+			req := newAuthRequest(http.MethodGet, path, nil, sess)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK, got %d", rec.Code)
+			}
+
+			if agg.lastBucketMs != tt.expectedBucket {
+				t.Errorf("expected bucket %d ms, got %d ms", tt.expectedBucket, agg.lastBucketMs)
+			}
+
+			body := rec.Body.String()
+			if !strings.Contains(body, `<meta http-equiv="refresh" content="30">`) {
+				t.Errorf("expected auto-refresh meta tag in overview response, got body: %s", body)
+			}
+			if !strings.Contains(body, tt.expectedWindow+" window") {
+				t.Errorf("expected overview to display %q window, got body: %s", tt.expectedWindow, body)
+			}
+		})
+	}
+}
+
+func TestOverviewView_AggregateRendering(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	sess := deps.SessionStore.CreateSession(time.Hour)
+	agg := deps.HistoryAggregator.(*mockHistoryAggregator)
+
+	agg.stats = history.WindowStats{
+		TotalRequests:   1500,
+		SuccessRequests: 1450,
+		InputTokens:     1200000,
+		OutputTokens:    800000,
+		AvgLatencyMs:    125,
+	}
+	agg.pStats = []history.ProviderStats{
+		{Provider: "openai", TotalRequests: 1500, SuccessRequests: 1450},
+	}
+	agg.mStats = []history.ModelStats{
+		{Model: "gpt-4o", InputTokens: 1200000, OutputTokens: 800000, TotalTokens: 2000000},
+	}
+	agg.buckets = []history.Bucket{
+		{Timestamp: time.Now().Add(-1 * time.Hour), Count: 50},
+		{Timestamp: time.Now(), Count: 100},
+	}
+
+	req := newAuthRequest(http.MethodGet, "/dashboard/overview?window=24h", nil, sess)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// KPI formatting assertions
+	if !strings.Contains(body, "1.5k") {
+		t.Errorf("expected compact total requests '1.5k', body: %s", body)
+	}
+	if !strings.Contains(body, "96.7%") {
+		t.Errorf("expected success rate '96.7%%', body: %s", body)
+	}
+	if !strings.Contains(body, "2.0M") {
+		t.Errorf("expected compact total tokens '2.0M', body: %s", body)
+	}
+	if !strings.Contains(body, "125 ms") {
+		t.Errorf("expected avg latency '125 ms', body: %s", body)
+	}
+
+	// Provider panel assertion
+	if !strings.Contains(body, `/dashboard/providers/openai`) {
+		t.Errorf("expected link to /dashboard/providers/openai in provider panel")
+	}
+	if !strings.Contains(body, "Healthy") {
+		t.Errorf("expected Healthy badge for provider")
+	}
+
+	// Top models table assertion
+	if !strings.Contains(body, "gpt-4o") || !strings.Contains(body, "Top Models by Usage") {
+		t.Errorf("expected Top Models table with gpt-4o")
+	}
+
+	// Failures panel must NOT exist on overview
+	if strings.Contains(body, "Recent Failures") {
+		t.Errorf("Recent Failures panel should be removed from overview")
+	}
+}
+
+func TestOverviewView_NilAggregator(t *testing.T) {
+	mux, deps, _ := setupTestMux(t)
+	sess := deps.SessionStore.CreateSession(time.Hour)
+	deps.HistoryAggregator = nil
+
+	req := newAuthRequest(http.MethodGet, "/dashboard/overview", nil, sess)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK with nil aggregator, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "System Overview") {
+		t.Errorf("expected System Overview page rendered with nil aggregator")
 	}
 }

@@ -14,9 +14,12 @@ rules:
   design:
     - Dashboard UI must compose existing shadcn-templ components from internal/dashboard/components/; raw HTML or bespoke widgets are allowed only when no component fits, and design.md must record why
     - User-visible feedback (success, error, info) must use the toast component (window.tui toast API) — never browser alert(), console-only messages, or ad-hoc inline banners; alert-banner is reserved for persistent page-level states
+    - Flash messages (?flash= / ?error= redirects) must surface only as client-side toasts via the layout Toaster's checkUrlFlash() — views must NOT render them server-side as static toast cards or banners on full-page loads; the SSR toast.Toast variant is for HTMX partial swaps only; alert-banner stays reserved for persistent states on pages without the Toaster (e.g. login errors)
   specs:
     - Requirements touching dashboard UI must name the shadcn-templ component surface (e.g. "a toast notification via the toast component", "a confirmation dialog via dialog") instead of generic wording like "show a message"
     - Notification scenarios must assert toast behavior (variant and copy), and that no plaintext secrets appear in toast content
+    - Notification scenarios must not require a server-rendered flash banner or static SSR toast element — assert the toast (client-side via the layout Toaster), not SSR markup
   tasks:
     - UI tasks must name the shadcn-templ components they use (dialog, toast, select, table, ...) and never introduce parallel UI primitives
     - Any task adding user feedback must wire it through the toast component / window.tui toast API
+    - Tasks must not add Flash/Error fields to page data structs for banner rendering; flash feedback flows through redirect query params → Toaster toast, with no per-view rendering

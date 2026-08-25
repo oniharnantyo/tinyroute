@@ -64,15 +64,50 @@ The dashboard SHALL provide a settings screen to change the password. Submitting
 
 ### Requirement: Observe views render live gateway state
 
-The dashboard SHALL render: an overview of request volume, success rate, token usage, and provider health; a providers list; routes; a filterable, paginated request history; and API keys. The overview, providers, routes, and history views SHALL source from existing read APIs (history querier, topology watcher, health store, credential store) and MUST NOT mutate state. The API keys view is a management surface whose mutations are specified in "API keys are managed from the dashboard".
+The dashboard SHALL render: a windowed overview of request volume, success rate, token usage, average latency, provider health with traffic, a request-volume chart, and top models by token usage; a providers list; a filterable, paginated request history; and API keys. The overview, providers, and history views SHALL source from read-only state (history aggregates and querier, topology watcher, health store, credential store) and MUST NOT mutate state. The API keys view is a management surface whose mutations are specified in "API keys are managed from the dashboard".
+
+The dashboard SHALL NOT serve a routes view: no sidebar entry for routes SHALL
+appear, and `GET /dashboard/routes` SHALL not be a registered route.
+
+The overview SHALL NOT render a recent-failures list; failure investigation is served by the history view's outcome filter.
 
 #### Scenario: overview reflects current state
-- **WHEN** the user opens the overview
-- **THEN** request volume, success rate, token totals, provider health, and recent failures are displayed from live state
+- **WHEN** the user opens the overview with a window of 1h, 24h, 7d, or 30d (default 24h when absent or unsupported)
+- **THEN** request count, success rate, token totals, and average latency are computed over only the records whose timestamps fall within that window, and each renders via the KPICard wrapper with compact number formatting for token counts
+
+#### Scenario: window selection navigates with a query parameter
+- **WHEN** the user selects a different window tab on the overview
+- **THEN** the view reloads for the chosen window via a query parameter, so windowed URLs are shareable and work without client-side scripting
+
+#### Scenario: overview renders a traffic chart
+- **WHEN** the overview renders for a window
+- **THEN** a request-volume chart renders via the templui chart component, bucketed server-side with bucket width derived from the window length, and empty buckets render as zero-height rather than being skipped
+
+#### Scenario: provider panel combines health with window traffic
+- **WHEN** the overview renders
+- **THEN** each configured provider shows its cooldown status from the health store alongside its windowed request count and success rate, and each provider row links to that provider's detail view
+
+#### Scenario: top models are ranked by windowed token usage
+- **WHEN** the overview renders for a window containing records
+- **THEN** a top-models table ranks models by combined input and output tokens within the window, composed from the templui table components
+
+#### Scenario: overview auto-refreshes
+- **WHEN** the overview remains open in a browser
+- **THEN** it reloads periodically without user action so statistics stay current
+
+#### Scenario: overview no longer lists failures
+- **WHEN** the overview renders
+- **THEN** no failures table is present, and failed requests remain inspectable through the history view's outcome filter
 
 #### Scenario: history is filterable and paginated
 - **WHEN** the user applies filters (provider/key/outcome/time) and paginates
 - **THEN** matching history rows are returned through the existing history querier
+
+#### Scenario: routes view is gone
+- **WHEN** an authenticated user views the dashboard sidebar
+- **THEN** no Routes entry appears
+- **WHEN** `GET /dashboard/routes` is requested
+- **THEN** the response status is `404`
 
 ### Requirement: API keys are managed from the dashboard
 
@@ -409,7 +444,7 @@ The dashboard SHALL render every icon (status indicators, navigation, and action
 
 ### Requirement: OAuth providers can be connected from the dashboard
 
-For a provider whose preset declares OAuth capability, the dashboard SHALL offer a **Connect** action on the provider detail page that initiates an OAuth flow in the browser. The flow SHALL be driven by a reusable OAuth runner (PKCE authorization-code for standard presets, and RFC 8628 device-code for presets whose flow type is `device_code`), configured from the preset's OAuth constants (client id/secret, authorize/token/device endpoints, scopes, redirect URI, extra parameters). The dashboard SHALL persist the `code_verifier` and `state` server-side for PKCE flows and verify `state` at the callback. On success the resolved tokens SHALL be stored through the existing credential store (as an OAuth refresh credential) and the dashboard SHALL reflect a masked connection. Plaintext tokens SHALL NEVER be logged or emitted.
+For a provider whose preset declares OAuth capability, the dashboard SHALL offer a **Connect** action on the provider detail page that initiates an OAuth flow in the browser. The flow SHALL be driven by a reusable OAuth runner (PKCE authorization-code for standard presets, and RFC 8628 device-code for presets whose flow type is `device_code`), configured from the preset's OAuth constants (client id/secret, authorize/token/device endpoints, scopes, redirect URI, extra parameters). The dashboard SHALL persist the `code_verifier` and `state` server-side for PKCE flows and verify `state` at the callback. The account label (if the user supplied one, e.g. from a connect dialog `input`) SHALL be carried through the flow alongside `state` so the callback knows its target account. On success the resolved tokens SHALL be stored through the existing credential store (as an OAuth refresh credential) under an account resolved per the provider-account-naming identity ladder, the matching `Provider.Accounts[]` entry SHALL be upserted, and the dashboard SHALL reflect a masked connection. A subsequent connect SHALL never overwrite a different account's stored credential. Plaintext tokens SHALL NEVER be logged or emitted.
 
 #### Scenario: a PKCE provider is connected in-browser
 
@@ -433,6 +468,18 @@ For a provider whose preset declares OAuth capability, the dashboard SHALL offer
 - **WHEN** an OAuth flow completes or a connection is displayed
 - **THEN** access/refresh tokens are not written to logs or rendered in the UI
 - **AND** only a masked digest is shown
+
+#### Scenario: a second connection creates an additional account
+
+- **WHEN** the user connects a provider that already has a stored connection
+- **THEN** the new tokens SHALL land under an account resolved through the identity ladder
+- **AND** the pre-existing connection and its `Accounts[]` entry SHALL remain untouched
+- **AND** completion SHALL surface a `toast` notification (variant: success) naming the account the connection was stored under, with no secret material in the copy
+
+#### Scenario: the topology linkage is written with the credential
+
+- **WHEN** an OAuth flow completes under an account name
+- **THEN** the provider's `Accounts[]` SHALL contain a matching entry (`type: oauth_refresh`) after the save
 
 ### Requirement: Client detail header identifies the client by logo and status
 
@@ -459,36 +506,74 @@ header SHALL NOT render the raw client id/dialect metadata subtitle
 
 ### Requirement: Model picker options render as uniform rows in a modal dialog
 
-Each model slot picker in the client detail editor SHALL open a modal dialog when activated.
-Within the dialog, every option row — the `(None / Default)` clear option (for optional slots)
-and each routable model — SHALL render as the same styled row component, and the currently
-selected option SHALL be visibly marked. Selecting an option SHALL close the dialog and update
-the slot's value; the styling of option rows SHALL NOT depend on client-side evaluation of an
-expression that embeds static class names.
+Each model slot picker in the client detail editor SHALL open a modal dialog
+(via the dialog component) when activated. The dialog body SHALL present two
+tab panes built with the tabs component — **Models** and **Combos** — whenever
+at least one combo is routable: the Models pane lists routable models grouped
+by provider, and the Combos pane lists routable combos as a flat,
+alphabetical, name-only list. When no combos are routable, the tab bar SHALL
+be omitted and the dialog SHALL render the flat provider-grouped models list
+directly. Each pane SHALL carry its own search input (via the input component)
+that filters only that pane's option rows and group headers; a query in one
+pane SHALL NOT affect the other. Within the dialog, every option row — the
+`(None / Default)` clear option (for optional slots, rendered in both panes)
+and each routable model or combo — SHALL render as the same styled row
+component, and the currently selected option SHALL be visibly marked. The
+dialog SHALL open with the Combos pane active when the slot's current value
+is a combo id, and the Models pane active otherwise. Selecting an option
+SHALL close the dialog and update the slot's value; the styling of option
+rows SHALL NOT depend on client-side evaluation of an expression that embeds
+static class names.
 
 #### Scenario: picker opens as a modal dialog
 
-- **WHEN** the user activates a slot's picker button
-- **THEN** a modal dialog opens, centered with a backdrop, listing the routable models grouped
-  by provider
+- **WHEN** the user activates a slot's picker button and at least one combo is routable
+- **THEN** a modal dialog opens, centered with a backdrop, with a Models pane listing
+  the routable models grouped by provider and a Combos pane listing the routable
+  combos as a flat alphabetical list
+
+#### Scenario: tab bar is omitted when no combos are routable
+
+- **WHEN** the picker dialog renders and no combos are routable
+- **THEN** no Models/Combos tab bar renders, and the dialog shows the flat
+  provider-grouped models list with its search input
+
+#### Scenario: each pane filters with its own search input
+
+- **WHEN** the user types a query into the Models pane's search input
+- **THEN** only the Models pane's rows and group headers filter against the query,
+  leaving the Combos pane's rows unaffected
+- **AND** typing into the Combos pane's search input filters only the Combos pane
+
+#### Scenario: group headers hide when no member rows match
+
+- **WHEN** a search query in the Models pane matches no model of some provider group
+- **THEN** that provider's group header is hidden along with its rows
+
+#### Scenario: default tab follows the slot's current value
+
+- **WHEN** the picker dialog opens for a slot whose current value is a combo id
+- **THEN** the Combos pane is the active pane
+- **WHEN** the picker dialog opens for any other slot value
+- **THEN** the Models pane is the active pane
 
 #### Scenario: option rows render uniformly and styled
 
 - **WHEN** the picker dialog renders
-- **THEN** every option row — including `(None / Default)` and each model — displays as the
-  same bordered row component with consistent spacing
+- **THEN** every option row — including `(None / Default)`, each model, and each
+  combo — displays as the same bordered row component with consistent spacing
 - **AND** no option renders as unstyled inline content
 
 #### Scenario: the selected option is visibly marked
 
 - **WHEN** the picker dialog opens for a slot that has a value
-- **THEN** the row for the currently selected model carries a distinct selected-state accent
-  and a check indicator
+- **THEN** the row for the currently selected model or combo carries a distinct
+  selected-state accent and a check indicator
 
 #### Scenario: selecting an option closes the dialog and updates the slot
 
-- **WHEN** the user clicks an option row
-- **THEN** the dialog closes and the slot's field displays the chosen model
+- **WHEN** the user clicks an option row, in either pane
+- **THEN** the dialog closes and the slot's field displays the chosen model or combo
 
 #### Scenario: dialog is dismissible
 
@@ -592,4 +677,391 @@ The dashboard SHALL serve a per-request detail page at `/dashboard/history/{id}`
 
 - **WHEN** a record contains multiple attempts
 - **THEN** each hop's provider, model, status, and latency are displayed in order
+
+### Requirement: API keys are added as accounts from the dashboard
+
+The provider detail page's add-API-key form (a `dialog` with a `input` for the
+secret and an optional `input` for an account label) SHALL append a
+`Provider.Accounts[]` entry (`{name, type: static, api_key}`) resolved through the
+provider-account-naming ladder (explicit label, else first free slot). It SHALL
+NOT overwrite the scalar `provider.api_key` or any existing account's key. A
+successful add SHALL show a `toast` notification (variant: success) naming the
+account; a rejected add (empty secret, invalid label) SHALL show a `toast`
+(variant: destructive) describing the constraint. No plaintext key SHALL appear in
+any toast copy beyond the existing masked display.
+
+#### Scenario: first key creates a named account
+
+- **WHEN** the user submits an API key with label `work` on a provider with no accounts
+- **THEN** an account `work` (`type: static`) SHALL hold the key in `Accounts[]`
+- **AND** a success `toast` SHALL name the account
+
+#### Scenario: second key adds another account instead of replacing
+
+- **WHEN** the user submits another API key without a label on a provider that already has an account
+- **THEN** a new slot account SHALL be appended holding the new key
+- **AND** the existing account's key SHALL be unchanged
+
+#### Scenario: empty secret is rejected
+
+- **WHEN** the add-key dialog is submitted with an empty secret
+- **THEN** a destructive `toast` SHALL state that the key is required
+- **AND** no topology change SHALL occur
+
+### Requirement: Connections can be reconnected and renamed from the dashboard
+
+Each masked connection row on the provider detail page SHALL offer **Reconnect**
+and **Rename** actions (via the row's `dropdown` menu). Reconnect SHALL start the
+provider's OAuth flow with the row's account name as the explicit label, so
+completed flows rotate that account's tokens in place. Rename SHALL re-key the
+stored credential (`provider/<old>` → `provider/<new>`) and rewrite the matching
+`Accounts[].Name` atomically in one gesture, after a `dialog` confirmation. A
+rename to an existing name SHALL be rejected with a destructive `toast`. Success
+SHALL show a success `toast` naming the account; no toast copy SHALL contain token
+material. Rename SHALL additionally rewrite every combo member pinned to the old
+account name (`provider@old:model` → `provider@new:model`) in the same write, so
+no combo is left pinning an account the provider no longer declares.
+
+#### Scenario: reconnect rotates a specific account in place
+
+- **WHEN** the user picks Reconnect on connection `jane@example.com` and completes the flow
+- **THEN** only that account's tokens SHALL be replaced
+- **AND** a success `toast` SHALL name the account
+
+#### Scenario: rename re-keys credential and topology together
+
+- **WHEN** the user renames account `account-2` to `team-pool` and confirms the `dialog`
+- **THEN** the credential store SHALL contain `provider/team-pool` and no `provider/account-2`
+- **AND** the `Accounts[]` entry SHALL be renamed to `team-pool`
+- **AND** a success `toast` SHALL name the new account
+
+#### Scenario: rename to an existing name is rejected
+
+- **WHEN** the user renames an account to a name already present on the provider
+- **THEN** a destructive `toast` SHALL report the collision
+- **AND** neither the credential store nor the topology SHALL change
+
+#### Scenario: rename rewrites pinned combo members in the same write
+
+- **WHEN** the user renames account `work` to `team` and a combo holds member
+  `glm@work:glm-4.7`
+- **THEN** that member SHALL become `glm@team:glm-4.7` in the same write as the
+  `Accounts[]` rename
+- **AND** a success `toast` SHALL name the account
+
+### Requirement: Combos section in dashboard navigation
+
+The dashboard SHALL provide a Combos section reachable from the sidebar
+navigation, positioned between Providers and History, using the Lucide layers
+icon. The section SHALL list all configured combos.
+
+#### Scenario: Combos nav entry is reachable
+
+- **WHEN** an authenticated user views the dashboard
+- **THEN** the sidebar SHALL contain a Combos entry between Providers and
+  History, with the layers icon, linking to the combos list
+
+### Requirement: Combo list with ordered members
+
+The combos page SHALL render one card per combo (via the card component)
+showing the combo name at the base text size (one step larger than body
+text), a mode badge (via the badge component), and members as
+position-numbered chips conveying member order. Member chips SHALL display
+the `provider:model` form — any `@account` pin SHALL be stripped from the
+card display while stored member strings remain verbatim (apparent
+duplicates from same-model-different-account members SHALL render as-is).
+Each card SHALL show at most 3 member chips; when a combo has more, an
+overflow marker `+N more…` (N = total − 3) SHALL follow the list, carrying
+the hidden members in its hover title. Disabled combos SHALL render
+visually muted so their state is legible beyond the toggle position. Each
+card SHALL offer enable/disable (see the toggle requirement), edit, and
+delete actions. When no combos exist, the page SHALL show an empty state
+(via the empty component with the layers icon) explaining what a combo is,
+with a single call-to-action to create one.
+
+#### Scenario: List renders numbered member order
+
+- **WHEN** the combos page is viewed and a combo has members
+  `["anthropic:claude-sonnet-4.5", "glm:glm-4.7", "openai:gpt-5.2"]`
+- **THEN** the card SHALL display the members numbered 1, 2, 3 in that order
+
+#### Scenario: Card title renders larger than body text
+
+- **WHEN** a combo card is rendered
+- **THEN** the combo name SHALL use the base text size, larger than the
+  card's member and metadata text
+
+#### Scenario: Member list caps at three with an overflow marker
+
+- **WHEN** a combo has 5 members
+- **THEN** the card SHALL render 3 member chips followed by `+2 more…`
+- **AND** the overflow marker's hover title SHALL list the 2 hidden members
+
+#### Scenario: Account pins are stripped from card display
+
+- **WHEN** a combo member is stored as `glm@work:glm-4.7`
+- **THEN** the card SHALL display it as `glm:glm-4.7`
+- **AND** editing the combo SHALL still open with `glm@work:glm-4.7`
+  verbatim
+
+#### Scenario: Disabled combos render muted
+
+- **WHEN** a combo has `disabled: true`
+- **THEN** its card SHALL render with reduced emphasis relative to enabled
+  cards
+
+#### Scenario: Empty state with no combos
+
+- **WHEN** no combos are configured
+- **THEN** the page SHALL render an empty-state component describing combos
+  with a create call-to-action, not a blank page
+
+### Requirement: Combo cards can be toggled enabled or disabled
+
+Each combo card SHALL carry an enable/disable switch (via the switch
+component, `role=switch`) in the card footer, left of the edit action,
+reflecting the combo's current state. Activating the switch SHALL submit a
+form POST to `/dashboard/combos/toggle` carrying the combo name — no
+client-side fetch or JavaScript beyond the shared component bundle. The
+handler SHALL flip the combo's disabled flag, persist configuration, and
+redirect back to the combos page with feedback. Because the gateway
+watches the configuration file, the change SHALL take effect on the live
+gateway without a restart.
+
+#### Scenario: Toggle flips state and persists
+
+- **WHEN** the user activates the switch on enabled combo `coding-priority`
+- **THEN** the dashboard SHALL persist `disabled: true` for that combo
+  and re-render the card with the switch off and muted styling
+
+#### Scenario: Toggle takes effect without restart
+
+- **WHEN** a combo is disabled from the dashboard while the gateway is
+  running
+- **THEN** the next request for that combo name SHALL fail with the
+  explicit disabled error, with no gateway restart
+
+#### Scenario: Toggle is a plain form POST
+
+- **WHEN** the switch is rendered
+- **THEN** it SHALL sit inside a form POSTing to `/dashboard/combos/toggle`
+  with the combo name as a hidden field, covered by the dashboard's
+  existing cross-origin protections
+
+### Requirement: Combo creation wizard hosted in a dialog
+
+Creating a combo SHALL happen inside a dialog (via the dialog component)
+opened from the combos page's "New Combo" button, without navigating away
+from the list. The wizard SHALL present the same five steps as the CLI wizard
+(name, members in priority order, mode, optional capabilities, review) one
+step at a time, with back/continue navigation, and SHALL NOT write
+configuration until the final create action. Editing an existing combo SHALL
+reuse the same dialog flow pre-filled with current values.
+
+#### Scenario: Wizard opens in a dialog over the list
+
+- **WHEN** the user activates "New Combo"
+- **THEN** a dialog SHALL open over the combos list showing the name step
+- **AND** the list SHALL remain visible behind it
+
+#### Scenario: Step navigation within the dialog
+
+- **WHEN** the user completes a step and continues, or goes back
+- **THEN** the dialog SHALL advance or return one step, preserving previously
+  entered values
+
+#### Scenario: Nothing written until final create
+
+- **WHEN** the user cancels or dismisses the dialog at any step
+- **THEN** no configuration change SHALL occur
+
+#### Scenario: Edit reuses the wizard pre-filled
+
+- **WHEN** the user activates edit on a combo card
+- **THEN** the same dialog wizard SHALL open pre-filled with that combo's
+  current name, members in their configured order, mode, and capabilities
+
+#### Scenario: Pinned members round-trip through edit
+
+- **WHEN** the user edits a combo whose members include `glm@work:glm-4.7`
+- **THEN** the wizard SHALL open with that member listed verbatim (pin
+  intact)
+- **AND** saving without changes SHALL preserve the member string exactly
+
+### Requirement: Member selection conveys priority order
+
+The members step SHALL add members one at a time through two dropdowns —
+**Model** and **Connection** — appending each addition to a numbered list
+whose position conveys member order. Each row SHALL offer move-up,
+move-down, and remove controls (icon buttons via the button component).
+At least one member SHALL be required to continue.
+
+The Model dropdown SHALL list each whitelisted model exactly once per
+provider (native `<select>` with `<optgroup>` provider grouping), in
+`provider:model` form — the model list SHALL NOT be duplicated per account.
+The Connection dropdown SHALL render visible but disabled with a
+"Select a model first" placeholder until a model is chosen. When a model is
+selected, the Connection dropdown SHALL be enabled and scoped to that
+model's provider only: it SHALL offer **Any connection** (no account pin;
+the provider's selection strategy applies) plus each account that provider
+declares when it declares two or more (accounts in sorted order), defaulting
+to the first account. When the selected model's provider declares fewer than
+two accounts, the dropdown SHALL remain disabled on Any connection (the pin
+would be semantically inert). The per-provider account list SHALL ship with
+the page as a data island and the scoping SHALL be applied client-side on
+model change — a presentational option-list sync only; all wizard state and
+validation remain server-driven. Activating Add SHALL compose the member
+server-side — selected model with Any connection yields `provider:model`;
+selected model with account `work` yields `provider@work:model` — and SHALL
+reject the addition with an inline error when the posted account belongs to
+a provider other than the selected model's provider (a guard for crafted
+posts; the scoped dropdown cannot produce this pairing) or when the composed
+member is already in the list. After a successful add, both dropdowns SHALL
+reset to their defaults.
+
+#### Scenario: Added member appends as next priority
+
+- **WHEN** two members are listed and a third is added
+- **THEN** it SHALL appear as position 3 and the member order SHALL reflect
+  the list top-to-bottom
+
+#### Scenario: Reordering changes priority
+
+- **WHEN** the user moves a member up one position
+- **THEN** its position SHALL swap with the member above it
+
+#### Scenario: A single member is enough to continue
+
+- **WHEN** the members list holds one member and the user continues
+- **THEN** the wizard SHALL advance to the mode step
+- **AND** continuing with an empty list SHALL re-render the step with an
+  inline error
+
+#### Scenario: Model dropdown lists each model once per provider
+
+- **WHEN** the members step renders for provider `glm` with accounts `work`
+  and `personal` whitelisting `glm-4.7`
+- **THEN** the Model dropdown SHALL contain `glm-4.7` exactly once under the
+  `glm` group
+- **AND** no `provider@account` options SHALL appear in the Model dropdown
+
+#### Scenario: Connection dropdown is disabled until a model is selected
+
+- **WHEN** the members step renders with no model chosen
+- **THEN** the Connection dropdown SHALL be visible but disabled with a
+  "Select a model first" placeholder
+
+#### Scenario: Connection dropdown scopes to the selected model's provider
+
+- **WHEN** the user selects Model `glm:glm-4.7` where `glm` declares
+  accounts `work` and `personal`
+- **THEN** the Connection dropdown SHALL be enabled with a `glm` group
+  offering `personal` and `work`, plus Any connection
+- **AND** it SHALL default to `glm`'s first account (`personal`, sorted
+  first) with Any connection available as an explicit choice
+- **AND** it SHALL NOT offer accounts of any other provider
+
+#### Scenario: Single-account provider keeps the dropdown on Any
+
+- **WHEN** the user selects a model of a provider declaring fewer than two
+  accounts
+- **THEN** the Connection dropdown SHALL remain disabled on Any connection
+
+#### Scenario: Model plus connection composes a pinned member
+
+- **WHEN** the user selects Model `glm:glm-4.7` and Connection `work` and
+  activates Add
+- **THEN** the member `glm@work:glm-4.7` SHALL be appended verbatim
+- **AND** both dropdowns SHALL reset to their defaults
+
+#### Scenario: Any connection composes an unpinned member
+
+- **WHEN** the user selects Model `glm:glm-4.7` with Connection left at Any
+  connection and activates Add
+- **THEN** the member `glm:glm-4.7` SHALL be appended
+
+#### Scenario: Mismatched connection is rejected
+
+- **WHEN** a POST composes Model `openai:gpt-5.2` with Connection `work`
+  (an account of `glm`)
+- **THEN** the step SHALL re-render with an inline error naming the mismatch
+- **AND** no member SHALL be appended
+
+#### Scenario: Duplicate composed member is rejected
+
+- **WHEN** Add is activated for a composed member identical to one already
+  in the list
+- **THEN** the step SHALL re-render with an inline error
+- **AND** the member SHALL NOT be duplicated
+
+### Requirement: Combo deletion requires confirmation
+
+Deleting a combo SHALL require confirmation via a confirmation dialog (the
+dialog component with destructive action styling, consistent with key
+revocation) naming the combo. Only the confirm action SHALL remove the combo
+from configuration.
+
+#### Scenario: Delete confirms before removing
+
+- **WHEN** the user activates delete on a combo card and confirms the
+  confirmation dialog
+- **THEN** the combo SHALL be removed and the list SHALL re-render without it
+
+#### Scenario: Cancelled delete keeps the combo
+
+- **WHEN** the user dismisses the delete confirmation
+- **THEN** the combo SHALL remain configured and listed
+
+### Requirement: Combo mutations notify via toast
+
+Successful combo creation, edit, and deletion SHALL surface feedback through a
+success toast (via the toast component) naming the combo and the action. The
+toast SHALL contain no secrets — only the combo name, action, and member
+count.
+
+#### Scenario: Create success toast
+
+- **WHEN** a combo is created through the wizard
+- **THEN** a success toast SHALL appear with copy naming the created combo
+- **AND** the toast SHALL NOT contain credentials or secrets
+
+#### Scenario: Edit and delete toasts
+
+- **WHEN** a combo is edited or deleted
+- **THEN** a success toast SHALL appear naming the combo and the action
+  performed
+
+### Requirement: Connection removal keeps account-pinned combo members consistent
+
+Removing a connection from the provider detail page SHALL downgrade every
+combo member pinned to that account (`provider@account:model`) to its
+unpinned form (`provider:model`), preserving the provider and model. When the
+unpinned form is already a member of the same combo, the downgraded entry
+SHALL be dropped instead of duplicated. A connection removal SHALL NOT
+remove any combo — downgrade preserves the provider and model of every
+member, so each combo keeps at least one member. The confirmation dialog SHALL
+warn when combos will be affected, and the completion toast SHALL name every
+combo that was modified. A combo SHALL never survive a connection removal
+referencing an account the provider no longer declares.
+
+#### Scenario: Pinned member downgrades on disconnect
+
+- **WHEN** the user disconnects account `work` on provider `glm` and a combo
+  holds member `glm@work:glm-4.7`
+- **THEN** the member SHALL become `glm:glm-4.7` in the same write
+- **AND** the toast SHALL name the combo that was modified
+
+#### Scenario: Downgrade to an existing member drops the pin instead
+
+- **WHEN** a combo holds both `glm:glm-4.7` and `glm@work:glm-4.7` and
+  account `work` is disconnected
+- **THEN** the pinned entry SHALL be dropped, leaving the member list
+  unchanged in meaning and free of duplicates
+
+#### Scenario: All-pinned combo survives downgrade with one member
+
+- **WHEN** a combo's members all pin the disconnected account and downgrade
+  would deduplicate them into one
+- **THEN** the combo SHALL survive with that single unpinned member
+- **AND** the toast SHALL name the combo that was modified
 

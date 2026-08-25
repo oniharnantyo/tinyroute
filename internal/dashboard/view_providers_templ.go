@@ -24,10 +24,12 @@ import (
 )
 
 type MaskedConnectionItem struct {
-	Account      string
-	Provider     string
-	RefreshToken string
-	ExpiresAt    string
+	Account            string
+	Provider           string
+	RefreshToken       string
+	ExpiresAt          string
+	Type               string // "oauth" or "static"
+	AffectedComboCount int
 }
 
 type ProviderCardModel struct {
@@ -83,7 +85,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><div class=\"flex flex-col sm:flex-row sm:items-center justify-between gap-4\"><div><h2 class=\"text-xl font-bold tracking-tight text-foreground\">Providers</h2><p class=\"text-xs text-muted-foreground\">Browse and manage upstream AI providers and API credentials</p></div><!-- Add Custom Provider Modal Trigger & Dialog -->")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><!-- Flash/error feedback renders as a toast via the layout Toaster's\n\t\t     checkUrlFlash(); no static banner here. --><div class=\"flex flex-col sm:flex-row sm:items-center justify-between gap-4\"><div><h2 class=\"text-xl font-bold tracking-tight text-foreground\">Providers</h2><p class=\"text-xs text-muted-foreground\">Browse and manage upstream AI providers and API credentials</p></div><!-- Add Custom Provider Modal Trigger & Dialog -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -757,7 +759,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(sec.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 183, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 188, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -770,7 +772,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(sec.Cards)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 183, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 188, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -788,7 +790,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 					var templ_7745c5c3_Var31 templ.SafeURL
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s", prov.Name)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 190, Col: 79}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 195, Col: 79}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -801,7 +803,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 					var templ_7745c5c3_Var32 string
 					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%s %s %s", prov.Name, prov.DisplayName, prov.Dialect))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 192, Col: 93}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 197, Col: 93}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 					if templ_7745c5c3_Err != nil {
@@ -839,7 +841,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 							var templ_7745c5c3_Var34 string
 							templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(prov.DisplayName)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 204, Col: 32}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 209, Col: 32}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 							if templ_7745c5c3_Err != nil {
@@ -849,7 +851,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 							var templ_7745c5c3_Var35 string
 							templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(prov.Name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 206, Col: 25}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 211, Col: 25}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 							if templ_7745c5c3_Err != nil {
@@ -880,7 +882,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 								var templ_7745c5c3_Var37 string
 								templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(prov.Tier)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 215, Col: 26}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 220, Col: 26}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 								if templ_7745c5c3_Err != nil {
@@ -912,7 +914,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 							var templ_7745c5c3_Var38 string
 							templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(prov.FreeNote)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 223, Col: 74}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 228, Col: 74}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 							if templ_7745c5c3_Err != nil {
@@ -935,7 +937,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 							var templ_7745c5c3_Var39 string
 							templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d conn", prov.ConnectionCount))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 231, Col: 59}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 236, Col: 59}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 							if templ_7745c5c3_Err != nil {
@@ -948,7 +950,7 @@ func ProvidersPage(data ProvidersPageData) templ.Component {
 							var templ_7745c5c3_Var40 string
 							templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d models", prov.WhitelistedCount))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 234, Col: 62}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 239, Col: 62}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 							if templ_7745c5c3_Err != nil {
@@ -1066,7 +1068,7 @@ func providerLogo(name string, logoName string) templ.Component {
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(name[:2])
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 268, Col: 13}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_providers.templ`, Line: 273, Col: 13}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {

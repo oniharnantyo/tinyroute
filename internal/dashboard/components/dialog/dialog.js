@@ -29,10 +29,10 @@
   function getDialog(root) {
     if (!root) return null;
     // Skip content nodes owned by a nested dialog when one sits between this root's trigger and content.
-    return ensureDialog(
+    return (
       [...root.querySelectorAll("[data-tui-dialog-content]")].find(
         (el) => el.closest("[data-tui-dialog]") === root,
-      ),
+      ) || null
     );
   }
 
@@ -124,6 +124,8 @@
     const dialog = getDialog(root);
     if (!dialog) return;
 
+    ensureDialog(dialog);
+
     window.clearTimeout(dialog._tuiDialogCloseTimer);
     delete dialog._tuiDialogCloseTimer;
     dialog.removeAttribute("data-tui-dialog-closing");
@@ -156,6 +158,8 @@
     const root = getRoot(target);
     const dialog = getDialog(root);
     if (!dialog) return;
+
+    ensureDialog(dialog);
 
     if (!dialog.open) {
       updateState(root, false);
@@ -193,14 +197,7 @@
       const dialog = getDialog(dialogRoot);
       if (!dialog) return;
 
-      // Already set up? Skip it. The MutationObserver re-runs this on every DOM
-      // change anywhere on the page; without this guard we'd re-write state on
-      // every existing dialog each time, which with reactive frameworks (e.g.
-      // Datastar patching content inside an open dialog) spirals into an
-      // observer feedback loop. Same skip-on-init pattern the other components
-      // use. See #562.
-      if (dialog.dataset.tuiDialogInitialized === "true") return;
-
+      const alreadyInitialized = dialog.dataset.tuiDialogInitialized === "true";
       ensureDialog(dialog);
 
       if (dialog.getAttribute("data-tui-dialog-initial-open") === "true") {
@@ -208,7 +205,7 @@
         // unrelated MutationObserver tick) never re-opens a closed dialog.
         dialog.removeAttribute("data-tui-dialog-initial-open");
         openDialog(dialogRoot);
-      } else {
+      } else if (!alreadyInitialized) {
         updateState(dialogRoot, dialog.open);
       }
     });

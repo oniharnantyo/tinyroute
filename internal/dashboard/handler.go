@@ -27,14 +27,15 @@ import (
 )
 
 type Deps struct {
-	Service         config.Service
-	PasswordStore   *PasswordStore
-	SessionStore    *SessionStore
-	LoginLimiter    *LoginLimiter
-	TopologyWatcher *config.Watcher[config.Topology]
-	KeyWatcher      *config.Watcher[auth.KeyStore]
-	HealthStore     *route.HealthStore
-	HistoryQuerier  history.Querier
+	Service           config.Service
+	PasswordStore     *PasswordStore
+	SessionStore      *SessionStore
+	LoginLimiter      *LoginLimiter
+	TopologyWatcher   *config.Watcher[config.Topology]
+	KeyWatcher        *config.Watcher[auth.KeyStore]
+	HealthStore       *route.HealthStore
+	HistoryQuerier    history.Querier
+	HistoryAggregator history.Aggregator
 	// RunProbe executes a model probe through the gateway's real in-process
 	// request path (route → translate → failover → upstream), bypassing API-key
 	// auth. Wired by serve.go.
@@ -43,6 +44,7 @@ type Deps struct {
 
 type OAuthStateSession struct {
 	Provider    string
+	Account     string
 	Verifier    string
 	RedirectURI string
 	CreatedAt   time.Time
@@ -80,7 +82,7 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 	// Protected dashboard routes
 	protectedMux := http.NewServeMux()
 	protectedMux.HandleFunc("GET /dashboard", h.handleOverviewView)
-	protectedMux.HandleFunc("GET /dashboard/", h.handleOverviewView)
+	protectedMux.HandleFunc("GET /dashboard/{$}", h.handleOverviewView)
 	protectedMux.HandleFunc("GET /dashboard/overview", h.handleOverviewView)
 
 	protectedMux.HandleFunc("GET /dashboard/providers", h.handleProvidersView)
@@ -89,6 +91,7 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 	protectedMux.HandleFunc("POST /dashboard/providers/delete", h.handleProviderDelete)
 	protectedMux.HandleFunc("POST /dashboard/providers/credential", h.handleProviderCredential)
 	protectedMux.HandleFunc("POST /dashboard/providers/credential/delete", h.handleProviderCredentialDelete)
+	protectedMux.HandleFunc("POST /dashboard/providers/account/rename", h.handleProviderAccountRename)
 	protectedMux.HandleFunc("GET /dashboard/providers/", h.handleProviderDetailView)
 
 	// OAuth routes
@@ -100,7 +103,10 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 	protectedMux.HandleFunc("POST /dashboard/models/remove", h.handleModelRemove)
 	protectedMux.HandleFunc("POST /dashboard/models/test", h.handleModelTest)
 
-	protectedMux.HandleFunc("GET /dashboard/routes", h.handleRoutesView)
+	protectedMux.HandleFunc("GET /dashboard/combos", h.handleCombosView)
+	protectedMux.HandleFunc("POST /dashboard/combos/wizard", h.handleCombosWizard)
+	protectedMux.HandleFunc("POST /dashboard/combos/toggle", h.handleCombosToggle)
+	protectedMux.HandleFunc("POST /dashboard/combos/delete", h.handleCombosDelete)
 	protectedMux.HandleFunc("GET /dashboard/history", h.handleHistoryView)
 	protectedMux.HandleFunc("GET /dashboard/history/{id}", h.handleHistoryDetailView)
 	protectedMux.HandleFunc("GET /dashboard/keys", h.handleKeysView)
@@ -184,11 +190,65 @@ func (h *DashboardHandler) handleLogout(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/dashboard/login", http.StatusSeeOther)
 }
 
+type windowSpec struct {
+	duration time.Duration
+	bucketMs int64
+}
+
+var windowDurations = map[string]windowSpec{
+	"1h":  {duration: time.Hour, bucketMs: 5 * 60 * 1000},                 // 5m
+	"24h": {duration: 24 * time.Hour, bucketMs: 60 * 60 * 1000},           // 1h
+	"7d":  {duration: 7 * 24 * time.Hour, bucketMs: 6 * 60 * 60 * 1000},   // 6h
+	"30d": {duration: 30 * 24 * time.Hour, bucketMs: 24 * 60 * 60 * 1000}, // 1d
+}
+
 func (h *DashboardHandler) handleOverviewView(w http.ResponseWriter, r *http.Request) {
-	data := OverviewData{}
+	windowKey := r.URL.Query().Get("window")
+	spec, ok := windowDurations[windowKey]
+	if !ok {
+		windowKey = "24h"
+		spec = windowDurations["24h"]
+	}
+
+	data := OverviewData{
+		ActiveWindow: windowKey,
+	}
+
+	now := time.Now().UTC()
+	from := now.Add(-spec.duration)
+	to := now
+
+	pStatsMap := make(map[string]history.ProviderStats)
+
+	// Gather stats from SQLite history store
+	if h.deps.HistoryAggregator != nil {
+		ctx := r.Context()
+		if ws, err := h.deps.HistoryAggregator.Stats(ctx, from, to); err == nil {
+			data.TotalRequests = ws.TotalRequests
+			data.SuccessRequests = ws.SuccessRequests
+			data.TotalPromptTokens = ws.InputTokens
+			data.TotalCompletionTokens = ws.OutputTokens
+			data.AvgLatencyMs = ws.AvgLatencyMs
+			if data.TotalRequests > 0 {
+				data.SuccessRate = float64(ws.SuccessRequests) / float64(data.TotalRequests) * 100.0
+			}
+		}
+		if pStatsList, err := h.deps.HistoryAggregator.StatsByProvider(ctx, from, to); err == nil {
+			for _, ps := range pStatsList {
+				pStatsMap[ps.Provider] = ps
+			}
+		}
+		if mStats, err := h.deps.HistoryAggregator.StatsByModel(ctx, from, to); err == nil {
+			data.TopModels = mStats
+		}
+		if buckets, err := h.deps.HistoryAggregator.RequestBuckets(ctx, from, to, spec.bucketMs); err == nil {
+			data.Buckets = buckets
+		}
+	}
+
 	topo := h.deps.TopologyWatcher.Get()
 
-	// Gather provider health status
+	// Gather provider health & traffic status
 	if topo != nil {
 		for name, p := range topo.Providers {
 			status := "healthy"
@@ -199,49 +259,30 @@ func (h *DashboardHandler) handleOverviewView(w http.ResponseWriter, r *http.Req
 					cooldownUntil = until.Format("15:04:05")
 				}
 			}
-			data.ProviderHealthList = append(data.ProviderHealthList, ProviderHealthItem{
+			var totalReqs int64
+			var successRate float64
+			if ps, ok := pStatsMap[name]; ok {
+				totalReqs = ps.TotalRequests
+				if totalReqs > 0 {
+					successRate = float64(ps.SuccessRequests) / float64(totalReqs) * 100.0
+				}
+			}
+			data.ProviderTrafficList = append(data.ProviderTrafficList, OverviewProviderItem{
 				Name:          name,
 				Dialect:       p.Dialect,
 				Status:        status,
 				CooldownUntil: cooldownUntil,
+				TotalRequests: totalReqs,
+				SuccessRate:   successRate,
 			})
 		}
-		sort.Slice(data.ProviderHealthList, func(i, j int) bool {
-			return data.ProviderHealthList[i].Name < data.ProviderHealthList[j].Name
+		sort.Slice(data.ProviderTrafficList, func(i, j int) bool {
+			return data.ProviderTrafficList[i].Name < data.ProviderTrafficList[j].Name
 		})
 	}
 
-	// Gather stats from SQLite history store
-	if h.deps.HistoryQuerier != nil {
-		if recs, _, err := h.deps.HistoryQuerier.List(r.Context(), history.Filter{Limit: 100}); err == nil {
-			data.TotalRequests = int64(len(recs))
-			var successCount int64
-			for _, rec := range recs {
-				if rec.Outcome == "success" {
-					successCount++
-				} else {
-					if len(data.RecentFailures) < 10 {
-						data.RecentFailures = append(data.RecentFailures, RecentFailureItem{
-							ID:         rec.ID,
-							Time:       rec.Timestamp.Format("15:04:05"),
-							Provider:   rec.Provider,
-							Model:      rec.ModelReq,
-							StatusCode: 500,
-							ErrorMsg:   rec.Outcome,
-						})
-					}
-				}
-				data.TotalPromptTokens += rec.InputTokens
-				data.TotalCompletionTokens += rec.OutputTokens
-			}
-			if data.TotalRequests > 0 {
-				data.SuccessRate = float64(successCount) / float64(data.TotalRequests) * 100.0
-			}
-		}
-	}
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	Layout("Overview", "overview", h.deps.PasswordStore.IsDefaultPassword(), OverviewPage(data)).Render(r.Context(), w)
+	Layout("Overview", "overview", h.deps.PasswordStore.IsDefaultPassword(), OverviewPage(data), WithAutoRefresh(30*time.Second)).Render(r.Context(), w)
 }
 
 func titleCase(s string) string {
@@ -487,7 +528,7 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 	}
 
 	credStore, _ := credential.NewStore(h.deps.Service.CredentialsPath)
-	var connections []MaskedConnectionItem
+	accMap := make(map[string]MaskedConnectionItem)
 	if credStore != nil {
 		for _, rec := range credStore.ListMasked() {
 			if strings.EqualFold(rec.Provider, provName) {
@@ -499,14 +540,67 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 				if !rec.ExpiresAt.IsZero() {
 					exp = rec.ExpiresAt.Format("2006-01-02 15:04:05")
 				}
-				connections = append(connections, MaskedConnectionItem{
+				accMap[acc] = MaskedConnectionItem{
 					Account:      acc,
 					Provider:     rec.Provider,
 					RefreshToken: rec.RefreshToken,
 					ExpiresAt:    exp,
-				})
+					Type:         "oauth",
+				}
 			}
 		}
+	}
+	if configured {
+		for _, acc := range p.Accounts {
+			if acc.Name == "" {
+				continue
+			}
+			if _, ok := accMap[acc.Name]; ok {
+				// A stored credential record means OAuth; the topology entry is
+				// just router linkage for the same account and must not
+				// downgrade the row's type (its "oauth_refresh" would render
+				// as a Static Key badge and hide Reconnect/expiry).
+				continue
+			}
+			credType := acc.Type
+			if credType == "oauth_refresh" {
+				credType = "oauth"
+			} else if credType == "" {
+				credType = "static"
+			}
+			tok := credential.MaskSecretToken(acc.APIKey)
+			if tok == "" {
+				tok = "configured"
+			}
+			accMap[acc.Name] = MaskedConnectionItem{
+				Account:      acc.Name,
+				Provider:     provName,
+				RefreshToken: tok,
+				ExpiresAt:    "Never",
+				Type:         credType,
+			}
+		}
+	}
+	var connections []MaskedConnectionItem
+	var accKeys []string
+	for k := range accMap {
+		accKeys = append(accKeys, k)
+	}
+	sort.Strings(accKeys)
+	for _, k := range accKeys {
+		conn := accMap[k]
+		count := 0
+		prefix := provName + "@" + conn.Account + ":"
+		for _, cb := range topo.Combos {
+			for _, m := range cb.Members {
+				if strings.HasPrefix(m, prefix) {
+					count++
+					break
+				}
+			}
+		}
+		conn.AffectedComboCount = count
+		connections = append(connections, conn)
 	}
 
 	whitelistedSet := make(map[string]bool)
@@ -557,12 +651,31 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		// Discover the model list: live-fetch from the provider using the stored
 		// credential (mirrors the CLI), then fall back to the remote catalog.
 		// OAuth providers store a "${VAR}" placeholder in Provider.APIKey, so
-		// prefer the credential store's access token and only fall back to a
-		// non-placeholder static key.
+		// prefer the credential store's access token. Accounts are the primary
+		// credential home (dashboard add-key writes Accounts[].APIKey, never the
+		// scalar), so consult them before the legacy scalar.
 		liveKey := ""
 		if credStore != nil {
 			if rec, ok := credStore.Get(provName); ok && rec.AccessToken != "" {
 				liveKey = rec.AccessToken
+			}
+		}
+		if liveKey == "" {
+			for _, acc := range p.Accounts {
+				k := acc.APIKey
+				if k == "" && acc.Credential != nil {
+					k = acc.Credential.APIKey
+				}
+				if k != "" && !strings.HasPrefix(k, "${") {
+					liveKey = k
+					break
+				}
+				if credStore != nil && acc.Type == "oauth_refresh" {
+					if rec, ok := credStore.GetAccount(provName, acc.Name); ok && rec.AccessToken != "" {
+						liveKey = rec.AccessToken
+						break
+					}
+				}
 			}
 		}
 		if liveKey == "" && apiKey != "" && !strings.HasPrefix(apiKey, "${") {
@@ -631,6 +744,7 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		UserCode:          r.URL.Query().Get("user_code"),
 		VerificationURI:   r.URL.Query().Get("verification_uri"),
 		DeviceID:          r.URL.Query().Get("device_id"),
+		Account:           r.URL.Query().Get("account"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -651,11 +765,96 @@ func splitCatalogModels(models []CatalogModelItem) (whitelisted, available []Cat
 	return whitelisted, available
 }
 
+func getDashboardExistingAccounts(provName string, store *credential.Store, topo config.Topology) []string {
+	seen := make(map[string]bool)
+	if store != nil {
+		for _, rec := range store.List() {
+			if strings.EqualFold(rec.Provider, provName) {
+				acc := rec.Account
+				if acc == "" {
+					acc = "default"
+				}
+				seen[acc] = true
+			}
+		}
+	}
+	provKey := provName
+	prov, ok := topo.Providers[provKey]
+	if !ok {
+		provKey = strings.ToLower(provName)
+		prov, ok = topo.Providers[provKey]
+	}
+	if ok {
+		for _, acc := range prov.Accounts {
+			if acc.Name != "" {
+				seen[acc.Name] = true
+			}
+		}
+	}
+	var existing []string
+	for acc := range seen {
+		existing = append(existing, acc)
+	}
+	sort.Strings(existing)
+	return existing
+}
+
+func (h *DashboardHandler) saveAccountGesture(provName string, acc config.Account, oauthRec *credential.OAuthRecord) error {
+	if oauthRec != nil {
+		credStore, err := credential.NewStore(h.deps.Service.CredentialsPath)
+		if err != nil {
+			return fmt.Errorf("Init credential store failed: %w", err)
+		}
+		if err := credStore.Save(*oauthRec); err != nil {
+			return fmt.Errorf("Save credential failed: %w", err)
+		}
+	}
+
+	data, err := os.ReadFile(h.deps.Service.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("Read config error: %w", err)
+	}
+	rawTopo, err := config.ParseRawTopology(data)
+	if err != nil {
+		return fmt.Errorf("Parse topology error: %w", err)
+	}
+
+	if _, err := ensureMaterialized(h.deps.Service.ConfigPath, &rawTopo, provName); err != nil {
+		return fmt.Errorf("Materialize error: %w", err)
+	}
+
+	provKey := provName
+	prov, ok := rawTopo.Providers[provKey]
+	if !ok {
+		provKey = strings.ToLower(provName)
+		prov, ok = rawTopo.Providers[provKey]
+	}
+	if !ok {
+		return fmt.Errorf("Provider not found: %s", provName)
+	}
+
+	prov = prov.UpsertAccount(acc)
+	rawTopo.Providers[provKey] = prov
+
+	if err := config.WriteTopology(h.deps.Service.ConfigPath, rawTopo); err != nil {
+		return fmt.Errorf("Write topology error: %w", err)
+	}
+	return nil
+}
+
 func (h *DashboardHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	provName := r.PathValue("name")
 	if provName == "" {
 		provName = strings.TrimPrefix(r.URL.Path, "/dashboard/providers/")
 		provName = strings.TrimSuffix(provName, "/oauth/start")
+	}
+
+	account := strings.TrimSpace(r.FormValue("account"))
+	if account != "" {
+		if err := credential.ValidateAccountName(account); err != nil {
+			http.Redirect(w, r, detailRedirect(provName, "", "Invalid account name: "+err.Error()), http.StatusSeeOther)
+			return
+		}
 	}
 
 	pre := preset.Get(provName)
@@ -674,7 +873,8 @@ func (h *DashboardHandler) handleOAuthStart(w http.ResponseWriter, r *http.Reque
 		dCode := url.QueryEscape(sess.DeviceCode)
 		uCode := url.QueryEscape(sess.UserCode)
 		dID := url.QueryEscape(sess.DeviceID)
-		redir := fmt.Sprintf("/dashboard/providers/%s?device_code=%s&user_code=%s&verification_uri=%s&device_id=%s&interval=%d", provName, dCode, uCode, vURL, dID, sess.Interval)
+		accParam := url.QueryEscape(account)
+		redir := fmt.Sprintf("/dashboard/providers/%s?device_code=%s&user_code=%s&verification_uri=%s&device_id=%s&interval=%d&account=%s", provName, dCode, uCode, vURL, dID, sess.Interval, accParam)
 		http.Redirect(w, r, redir, http.StatusSeeOther)
 		return
 	}
@@ -707,6 +907,7 @@ func (h *DashboardHandler) handleOAuthStart(w http.ResponseWriter, r *http.Reque
 	}
 	h.oauthStateStore[pkceSess.State] = OAuthStateSession{
 		Provider:    provName,
+		Account:     account,
 		Verifier:    pkceSess.Verifier,
 		RedirectURI: redirectURI,
 		CreatedAt:   now,
@@ -762,20 +963,32 @@ func (h *DashboardHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if data, err := os.ReadFile(h.deps.Service.ConfigPath); err == nil {
-		if rawTopo, err := config.ParseRawTopology(data); err == nil {
-			_, _ = ensureMaterialized(h.deps.Service.ConfigPath, &rawTopo, sess.Provider)
-		}
-	}
-
 	credStore, err := credential.NewStore(h.deps.Service.CredentialsPath)
 	if err != nil {
 		http.Redirect(w, r, fmt.Sprintf("/dashboard/providers/%s?error=%s", sess.Provider, url.QueryEscape("Init credential store failed: "+err.Error())), http.StatusSeeOther)
 		return
 	}
 
-	if err := credStore.Save(*rec); err != nil {
-		http.Redirect(w, r, fmt.Sprintf("/dashboard/providers/%s?error=%s", sess.Provider, url.QueryEscape("Save OAuth credential failed: "+err.Error())), http.StatusSeeOther)
+	var rawTopo config.Topology
+	if data, err := os.ReadFile(h.deps.Service.ConfigPath); err == nil {
+		rawTopo, _ = config.ParseRawTopology(data)
+	}
+	existing := getDashboardExistingAccounts(sess.Provider, credStore, rawTopo)
+
+	resolvedAcc, err := credential.ResolveAccount(sess.Provider, sess.Account, rec.IdentityHint, existing)
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/dashboard/providers/%s?error=%s", sess.Provider, url.QueryEscape("Resolve account failed: "+err.Error())), http.StatusSeeOther)
+		return
+	}
+	rec.Account = resolvedAcc
+
+	acc := config.Account{
+		Name: resolvedAcc,
+		Type: "oauth_refresh",
+	}
+
+	if err := h.saveAccountGesture(sess.Provider, acc, rec); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/dashboard/providers/%s?error=%s", sess.Provider, url.QueryEscape(err.Error())), http.StatusSeeOther)
 		return
 	}
 
@@ -783,7 +996,7 @@ func (h *DashboardHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Re
 	if dispName == "" {
 		dispName = titleCase(pre.Name)
 	}
-	flash := fmt.Sprintf("Successfully connected OAuth for %s!", dispName)
+	flash := fmt.Sprintf("Successfully connected account '%s' for %s!", resolvedAcc, dispName)
 	http.Redirect(w, r, fmt.Sprintf("/dashboard/providers/%s?flash=%s", sess.Provider, url.QueryEscape(flash)), http.StatusSeeOther)
 }
 
@@ -803,6 +1016,7 @@ func (h *DashboardHandler) handleOAuthDevicePoll(w http.ResponseWriter, r *http.
 
 	deviceCode := r.FormValue("device_code")
 	deviceID := r.FormValue("device_id")
+	account := strings.TrimSpace(r.FormValue("account"))
 	if deviceCode == "" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "error", "message": "Missing device_code"})
@@ -820,21 +1034,31 @@ func (h *DashboardHandler) handleOAuthDevicePoll(w http.ResponseWriter, r *http.
 		return
 	}
 	if rec != nil {
-		if data, err := os.ReadFile(h.deps.Service.ConfigPath); err == nil {
-			if rawTopo, err := config.ParseRawTopology(data); err == nil {
-				_, _ = ensureMaterialized(h.deps.Service.ConfigPath, &rawTopo, provName)
-			}
-		}
 		credStore, err := credential.NewStore(h.deps.Service.CredentialsPath)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "error", "message": "Init credential store failed: " + err.Error()})
 			return
 		}
-		if err := credStore.Save(*rec); err != nil {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "error", "message": "Save credential failed: " + err.Error()})
+		var rawTopo config.Topology
+		if data, err := os.ReadFile(h.deps.Service.ConfigPath); err == nil {
+			rawTopo, _ = config.ParseRawTopology(data)
+		}
+		existing := getDashboardExistingAccounts(provName, credStore, rawTopo)
+		resolvedAcc, err := credential.ResolveAccount(provName, account, rec.IdentityHint, existing)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "error", "message": "Resolve account failed: " + err.Error()})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
+		rec.Account = resolvedAcc
+		acc := config.Account{
+			Name: resolvedAcc,
+			Type: "oauth_refresh",
+		}
+		if err := h.saveAccountGesture(provName, acc, rec); err != nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "error", "message": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "success", "account": resolvedAcc})
 		return
 	}
 
@@ -1000,6 +1224,7 @@ func detailRedirect(provName, flash, errStr string) string {
 func (h *DashboardHandler) handleProviderCredential(w http.ResponseWriter, r *http.Request) {
 	provName := r.FormValue("name")
 	apiKey := strings.TrimSpace(r.FormValue("api_key"))
+	account := strings.TrimSpace(r.FormValue("account"))
 
 	if provName == "" {
 		http.Redirect(w, r, detailRedirect(provName, "", "Provider name required"), http.StatusSeeOther)
@@ -1010,42 +1235,131 @@ func (h *DashboardHandler) handleProviderCredential(w http.ResponseWriter, r *ht
 		return
 	}
 
+	credStore, _ := credential.NewStore(h.deps.Service.CredentialsPath)
 	data, err := os.ReadFile(h.deps.Service.ConfigPath)
 	if err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Read config error"), http.StatusSeeOther)
+		http.Redirect(w, r, detailRedirect(provName, "", "Read config error: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 	rawTopo, err := config.ParseRawTopology(data)
 	if err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Parse topology error"), http.StatusSeeOther)
+		http.Redirect(w, r, detailRedirect(provName, "", "Parse topology error: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 
-	if _, err := ensureMaterialized(h.deps.Service.ConfigPath, &rawTopo, provName); err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Materialize error: "+err.Error()), http.StatusSeeOther)
+	existing := getDashboardExistingAccounts(provName, credStore, rawTopo)
+	resolvedAcc, err := credential.ResolveAccount(provName, account, "", existing)
+	if err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", "Invalid account name: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 
+	acc := config.Account{
+		Name:   resolvedAcc,
+		Type:   "static",
+		APIKey: apiKey,
+	}
+
+	if err := h.saveAccountGesture(provName, acc, nil); err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, detailRedirect(provName, fmt.Sprintf("Saved API key for account '%s'", resolvedAcc), ""), http.StatusSeeOther)
+}
+
+func (h *DashboardHandler) handleProviderAccountRename(w http.ResponseWriter, r *http.Request) {
+	provName := strings.TrimSpace(r.FormValue("provider"))
+	oldAccount := strings.TrimSpace(r.FormValue("old_account"))
+	newAccount := strings.TrimSpace(r.FormValue("new_account"))
+
+	if provName == "" || oldAccount == "" || newAccount == "" {
+		http.Redirect(w, r, detailRedirect(provName, "", "Provider name and account names are required"), http.StatusSeeOther)
+		return
+	}
+
+	if err := credential.ValidateAccountName(newAccount); err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", "Invalid account name: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	if oldAccount == newAccount {
+		http.Redirect(w, r, detailRedirect(provName, "Account name unchanged", ""), http.StatusSeeOther)
+		return
+	}
+
+	credStore, err := credential.NewStore(h.deps.Service.CredentialsPath)
+	if err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", "Init credential store failed: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	data, err := os.ReadFile(h.deps.Service.ConfigPath)
+	if err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", "Read config error: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+	rawTopo, err := config.ParseRawTopology(data)
+	if err != nil {
+		http.Redirect(w, r, detailRedirect(provName, "", "Parse topology error: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	existing := getDashboardExistingAccounts(provName, credStore, rawTopo)
+	for _, acc := range existing {
+		if strings.EqualFold(acc, newAccount) {
+			http.Redirect(w, r, detailRedirect(provName, "", fmt.Sprintf("Account '%s' already exists for %s", newAccount, provName)), http.StatusSeeOther)
+			return
+		}
+	}
+
+	// 1. Re-key in credential store (store-first)
+	oldKey := provName + "/" + oldAccount
+	if rec, ok := credStore.Get(oldKey); ok {
+		rec.Account = newAccount
+		if err := credStore.Save(rec); err != nil {
+			http.Redirect(w, r, detailRedirect(provName, "", "Save renamed credential failed: "+err.Error()), http.StatusSeeOther)
+			return
+		}
+		_ = credStore.Delete(oldKey)
+		if oldAccount == "default" {
+			_ = credStore.Delete(provName)
+		}
+	}
+
+	// 2. Re-key in topology
 	provKey := provName
 	prov, ok := rawTopo.Providers[provKey]
 	if !ok {
 		provKey = strings.ToLower(provName)
 		prov, ok = rawTopo.Providers[provKey]
 	}
-	if !ok {
-		http.Redirect(w, r, detailRedirect(provName, "", "Provider not found"), http.StatusSeeOther)
-		return
+	if ok {
+		renamedInTopology := false
+		for i, acc := range prov.Accounts {
+			if acc.Name == oldAccount {
+				prov.Accounts[i].Name = newAccount
+				renamedInTopology = true
+				break
+			}
+		}
+		if !renamedInTopology {
+			// If the account only existed in the credential store (legacy unmaterialized store record),
+			// all store records represent OAuth credentials in practice, so we record it in topology as Type: "oauth_refresh".
+			prov = prov.UpsertAccount(config.Account{
+				Name: newAccount,
+				Type: "oauth_refresh",
+			})
+		}
+		rawTopo.Providers[provKey] = prov
+		rawTopo.Combos = config.RenameComboAccount(rawTopo.Combos, provName, oldAccount, newAccount)
+		if err := config.WriteTopology(h.deps.Service.ConfigPath, rawTopo); err != nil {
+			http.Redirect(w, r, detailRedirect(provName, "", "Write topology error: "+err.Error()), http.StatusSeeOther)
+			return
+		}
 	}
 
-	prov.APIKey = apiKey
-	rawTopo.Providers[provKey] = prov
-
-	if err := config.WriteTopology(h.deps.Service.ConfigPath, rawTopo); err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Write topology error: "+err.Error()), http.StatusSeeOther)
-		return
-	}
-
-	http.Redirect(w, r, detailRedirect(provName, "API key saved for '"+provName+"'", ""), http.StatusSeeOther)
+	http.Redirect(w, r, detailRedirect(provName, fmt.Sprintf("Renamed account '%s' to '%s'", oldAccount, newAccount), ""), http.StatusSeeOther)
 }
 
 func (h *DashboardHandler) handleProviderCredentialDelete(w http.ResponseWriter, r *http.Request) {
@@ -1058,48 +1372,70 @@ func (h *DashboardHandler) handleProviderCredentialDelete(w http.ResponseWriter,
 		return
 	}
 
-	if credType == "api_key" {
-		data, err := os.ReadFile(h.deps.Service.ConfigPath)
-		if err != nil {
-			http.Redirect(w, r, detailRedirect(provName, "", "Read config error"), http.StatusSeeOther)
-			return
+	// Delete from credential store
+	if credStore, err := credential.NewStore(h.deps.Service.CredentialsPath); err == nil && credStore != nil {
+		if account != "" {
+			_ = credStore.Delete(provName + "/" + account)
+			if account == "default" {
+				_ = credStore.Delete(provName)
+			}
+		} else if credType != "api_key" {
+			_ = credStore.Delete(provName)
+			_ = credStore.Delete(provName + "/default")
 		}
-		rawTopo, err := config.ParseRawTopology(data)
-		if err != nil {
-			http.Redirect(w, r, detailRedirect(provName, "", "Parse topology error"), http.StatusSeeOther)
-			return
-		}
-		prov, ok := rawTopo.Providers[provName]
-		if ok {
-			prov.APIKey = ""
-			rawTopo.Providers[provName] = prov
-			if err := config.WriteTopology(h.deps.Service.ConfigPath, rawTopo); err != nil {
-				http.Redirect(w, r, detailRedirect(provName, "", "Write topology error: "+err.Error()), http.StatusSeeOther)
-				return
+	}
+
+	// Delete from topology
+	var modifiedCombos []string
+	if data, err := os.ReadFile(h.deps.Service.ConfigPath); err == nil {
+		if rawTopo, err := config.ParseRawTopology(data); err == nil {
+			provKey := provName
+			prov, ok := rawTopo.Providers[provKey]
+			if !ok {
+				provKey = strings.ToLower(provName)
+				prov, ok = rawTopo.Providers[provKey]
+			}
+			if ok {
+				if account != "" {
+					var remaining []config.Account
+					for _, acc := range prov.Accounts {
+						if acc.Name != account {
+							remaining = append(remaining, acc)
+						}
+					}
+					prov.Accounts = remaining
+					rawTopo.Combos, modifiedCombos = config.DowngradeComboAccount(rawTopo.Combos, provName, account)
+				} else if credType == "api_key" {
+					prov.APIKey = ""
+				} else {
+					var remaining []config.Account
+					for _, acc := range prov.Accounts {
+						if acc.Name != "default" {
+							remaining = append(remaining, acc)
+						}
+					}
+					prov.Accounts = remaining
+					rawTopo.Combos, modifiedCombos = config.DowngradeComboAccount(rawTopo.Combos, provName, "default")
+				}
+				rawTopo.Providers[provKey] = prov
+				if err := config.WriteTopology(h.deps.Service.ConfigPath, rawTopo); err != nil {
+					http.Redirect(w, r, detailRedirect(provName, "", "Write topology error: "+err.Error()), http.StatusSeeOther)
+					return
+				}
 			}
 		}
-		http.Redirect(w, r, detailRedirect(provName, "API key removed for '"+provName+"'", ""), http.StatusSeeOther)
-		return
 	}
 
-	// Delete OAuth / custodian credential
-	credStore, err := credential.NewStore(h.deps.Service.CredentialsPath)
-	if err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Init credential store error"), http.StatusSeeOther)
-		return
+	msg := "Connection removed"
+	if account != "" {
+		msg = fmt.Sprintf("Account '%s' removed", account)
+	} else if credType == "api_key" {
+		msg = fmt.Sprintf("API key removed for '%s'", provName)
 	}
-
-	keyToDelete := provName
-	if account != "" && account != "default" {
-		keyToDelete = provName + "/" + account
+	if len(modifiedCombos) > 0 {
+		msg += fmt.Sprintf(" (modified combos: %s)", strings.Join(modifiedCombos, ", "))
 	}
-
-	if err := credStore.Delete(keyToDelete); err != nil {
-		http.Redirect(w, r, detailRedirect(provName, "", "Delete credential error: "+err.Error()), http.StatusSeeOther)
-		return
-	}
-
-	http.Redirect(w, r, detailRedirect(provName, "OAuth connection removed", ""), http.StatusSeeOther)
+	http.Redirect(w, r, detailRedirect(provName, msg, ""), http.StatusSeeOther)
 }
 
 func (h *DashboardHandler) handleModelAdd(w http.ResponseWriter, r *http.Request) {
@@ -1248,22 +1584,6 @@ func (h *DashboardHandler) handleModelTest(w http.ResponseWriter, r *http.Reques
 	respondErr(fmt.Sprintf("Model test returned HTTP %d", statusCode), http.StatusBadRequest)
 }
 
-func (h *DashboardHandler) handleRoutesView(w http.ResponseWriter, r *http.Request) {
-	data := RoutesPageData{}
-	topo := h.deps.TopologyWatcher.Get()
-	if topo != nil {
-		for _, r := range topo.Routes {
-			data.Routes = append(data.Routes, RouteItem{
-				From:  r.From,
-				Match: r.Match,
-				Chain: r.Chain,
-			})
-		}
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	Layout("Routes", "routes", h.deps.PasswordStore.IsDefaultPassword(), RoutesPage(data)).Render(r.Context(), w)
-}
-
 func (h *DashboardHandler) handleHistoryView(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	provider := q.Get("provider")
@@ -1397,8 +1717,6 @@ func (h *DashboardHandler) handleHistoryDetailView(w http.ResponseWriter, r *htt
 
 func (h *DashboardHandler) handleKeysView(w http.ResponseWriter, r *http.Request) {
 	data := KeysPageData{
-		Error:      r.URL.Query().Get("error"),
-		Flash:      r.URL.Query().Get("flash"),
 		ListenAddr: h.deps.Service.Listen,
 	}
 	if data.ListenAddr == "" {
@@ -1867,6 +2185,7 @@ func (h *DashboardHandler) handleClientDetailView(w http.ResponseWriter, r *http
 		MaskedKey:           st.MaskedKey,
 		RoutableModels:      routableModels,
 		ProviderModelGroups: groupModelsByProvider(routableModels),
+		ComboOptions:        splitComboOptions(routableModels),
 		SlotValues:          st.SlotValues,
 		ModelSlots:          c.ModelSlots(),
 		ExistingKeys:        existingKeys,

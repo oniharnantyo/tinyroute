@@ -18,9 +18,12 @@ topology when absent and a TTY is attached (single candidate auto-selects;
 non-TTY with no provider SHALL yield a clear error naming the value). The account
 name SHALL be unique within the provider; a duplicate SHALL be rejected. The
 credential type SHALL be `static` (a `Password`-prompted key) or `oauth_refresh`
-(delegating to the provider's OAuth flow). The change SHALL persist via
-`WriteTopology`. Args/flags (`--account`, `--type`, `--key`, `--no-interactive`,
-`--force`) SHALL be honored as an escape-hatch.
+(delegating to the provider's OAuth flow). For `oauth_refresh`, the delegated flow
+SHALL run with the chosen account name as its explicit label, so tokens are stored
+under `provider/<name>`. A failed or cancelled OAuth flow SHALL abort the command
+with the flow's error and SHALL NOT append a credential-less account entry. The
+change SHALL persist via `WriteTopology`. Args/flags (`--account`, `--type`,
+`--key`, `--no-interactive`, `--force`) SHALL be honored as an escape-hatch.
 
 #### Scenario: Zero args in a TTY prompts for provider and account name
 
@@ -39,6 +42,19 @@ credential type SHALL be `static` (a `Password`-prompted key) or `oauth_refresh`
 
 - **WHEN** `tinyroute providers account add` is run without a TTY and no provider argument
 - **THEN** the command SHALL fail with an error naming the provider and how to supply it
+
+#### Scenario: `oauth_refresh` stores tokens under the named account
+
+- **WHEN** `tinyroute providers account add codex team2 --type oauth_refresh`
+  completes the delegated OAuth flow
+- **THEN** the tokens SHALL be stored under the `codex/team2` key
+- **AND** the appended `Accounts[]` entry SHALL carry `type: oauth_refresh`
+
+#### Scenario: OAuth flow failure aborts without appending the account
+
+- **WHEN** the delegated OAuth flow fails or is cancelled
+- **THEN** the command SHALL exit non-zero with the flow's error
+- **AND** the topology SHALL NOT contain the new account entry
 
 ### Requirement: `providers account list` shows accounts with masked credentials and health
 
@@ -68,11 +84,38 @@ from `Provider.Accounts` and persist via `WriteTopology`. The target SHALL be ga
 interactively when absent. Removing the last account SHALL leave the provider on its
 legacy `api_key`/`credential` (if any); it SHALL NOT delete the provider.
 
+Removing an account SHALL additionally downgrade every combo member pinned to it
+(`provider@account:model` → `provider:model`), preserving the provider and model. When
+the unpinned form is already a member of the same combo, the downgraded entry SHALL be
+dropped instead of duplicated. No combo SHALL be removed by an account removal —
+downgrade preserves the provider and model of every member, so each combo keeps at
+least one member. The command output SHALL name every combo modified as a result.
+
 #### Scenario: Removing an account persists the change
 
 - **WHEN** `tinyroute providers account remove openai secondary` is run
 - **THEN** the `secondary` account SHALL be removed from `Provider.Accounts`
 - **AND** `WriteTopology` SHALL persist the result
+
+#### Scenario: Removing an account downgrades pinned combo members
+
+- **WHEN** `tinyroute providers account remove glm work` is run and a combo holds
+  member `glm@work:glm-4.7`
+- **THEN** the member SHALL become `glm:glm-4.7` in the same persisted write
+- **AND** the output SHALL name the combo that was modified
+
+#### Scenario: Downgrade that would duplicate drops the pinned member
+
+- **WHEN** a combo holds both `glm:glm-4.7` and `glm@work:glm-4.7` and account `work`
+  is removed
+- **THEN** the pinned entry SHALL be dropped and no duplicate member SHALL remain
+
+#### Scenario: All-pinned combo survives downgrade with one member
+
+- **WHEN** a combo's members all pin the removed account and downgrade would
+  deduplicate them into one
+- **THEN** the combo SHALL survive with that single unpinned member and the
+  output SHALL name it as modified
 
 #### Scenario: Empty account list is an informational exit
 

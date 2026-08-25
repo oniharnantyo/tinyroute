@@ -258,6 +258,10 @@ func cmdAccountAdd(ctx context.Context, cmd *cli.Command, isInteractive bool) er
 		accountName = strings.TrimSpace(accountName)
 	}
 
+	if err := credential.ValidateAccountName(accountName); err != nil {
+		return fmt.Errorf("invalid account name: %w", err)
+	}
+
 	for _, acc := range p.Accounts {
 		if acc.Name == accountName {
 			return fmt.Errorf("account %q already exists for provider %q", accountName, providerName)
@@ -297,14 +301,16 @@ func cmdAccountAdd(ctx context.Context, cmd *cli.Command, isInteractive bool) er
 	} else if credType == "oauth_refresh" {
 		if isInteractive {
 			fmt.Printf("Delegating to OAuth login for provider %q account %q...\n", providerName, accountName)
-			loginArgs := []string{providerName}
-			_ = cmdAuthLoginWithAccount(ctx, loginArgs, accountName, true)
+		}
+		loginArgs := []string{providerName}
+		if err := cmdAuthLoginWithAccount(ctx, loginArgs, accountName, isInteractive); err != nil {
+			return fmt.Errorf("oauth login failed: %w", err)
 		}
 	} else {
 		return fmt.Errorf("invalid credential type %q", credType)
 	}
 
-	p.Accounts = append(p.Accounts, acc)
+	p = p.UpsertAccount(acc)
 	topo.Providers[providerName] = p
 
 	if err := config.WriteTopology(svc.ConfigPath, topo); err != nil {
@@ -526,6 +532,9 @@ func cmdAccountRemove(args []string, isInteractive bool) error {
 	p.Accounts = append(p.Accounts[:foundIdx], p.Accounts[foundIdx+1:]...)
 	topo.Providers[providerName] = p
 
+	var modifiedCombos []string
+	topo.Combos, modifiedCombos = config.DowngradeComboAccount(topo.Combos, providerName, accountName)
+
 	if err := config.WriteTopology(svc.ConfigPath, topo); err != nil {
 		return fmt.Errorf("write topology: %w", err)
 	}
@@ -536,6 +545,9 @@ func cmdAccountRemove(args []string, isInteractive bool) error {
 	}
 
 	fmt.Printf("removed account %q from provider %q\n", accountName, providerName)
+	if len(modifiedCombos) > 0 {
+		fmt.Printf("downgraded pin in combos: %s\n", strings.Join(modifiedCombos, ", "))
+	}
 	return nil
 }
 

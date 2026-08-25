@@ -150,7 +150,7 @@ The translation surface today, gated by `translate.CanTranslate` wired into rout
  openai-resp  ───┤   ❌         ❌          ❌          ➖
                  └─  ➖ = passthrough   ✅ = translatable   ❌ = blocked
 
-   ✅ routes: A→O (direct) · O→G (direct) · A→G (composed via openai)
+   ✅ paths: A→O (direct) · O→G (direct) · A→G (composed via openai)
 ```
 
 **Unsupported combos fail loudly, never silently.** The router's `FaithfulSurfaceGuard`

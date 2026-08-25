@@ -28,14 +28,13 @@ providers:
     dialect: openai
     base_url: https://openrouter.ai/api/v1
     models: [anthropic/claude-opus-4]
-routes:
-  - from: anthropic
-    match: "*"
-    chain: [grok:$model]
+combos:
+  - name: smart-combo
+    members: [grok:grok-4]
 `)
 
 	got := DiscoverModelsForDialect("anthropic")
-	want := []string{"grok:grok-4", "grok:grok-4-fast", "openrouter:anthropic/claude-opus-4"}
+	want := []string{"combo:smart-combo", "grok:grok-4", "grok:grok-4-fast", "openrouter:anthropic/claude-opus-4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("DiscoverModelsForDialect() = %v, want %v", got, want)
 	}
@@ -47,10 +46,6 @@ providers:
   grok:
     dialect: openai
     base_url: https://api.x.ai/v1
-routes:
-  - from: anthropic
-    match: "*"
-    chain: [grok:$model]
 `)
 
 	if got := DiscoverModelsForDialect("anthropic"); len(got) != 0 {

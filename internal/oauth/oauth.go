@@ -177,6 +177,7 @@ func ExchangePKCE(ctx context.Context, p *preset.Preset, client *http.Client, co
 	var res struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
 		TokenType    string `json:"token_type"`
 		ExpiresIn    int64  `json:"expires_in"`
 		Error        string `json:"error"`
@@ -184,6 +185,7 @@ func ExchangePKCE(ctx context.Context, p *preset.Preset, client *http.Client, co
 		Data         struct {
 			AccessToken  string `json:"accessToken"`
 			RefreshToken string `json:"refreshToken"`
+			IDToken      string `json:"idToken"`
 			TokenType    string `json:"tokenType"`
 			ExpiresAt    string `json:"expiresAt"`
 		} `json:"data"`
@@ -207,6 +209,10 @@ func ExchangePKCE(ctx context.Context, p *preset.Preset, client *http.Client, co
 	if refreshToken == "" {
 		refreshToken = res.Data.RefreshToken
 	}
+	idToken := res.IDToken
+	if idToken == "" {
+		idToken = res.Data.IDToken
+	}
 
 	var exp time.Time
 	if res.ExpiresIn > 0 {
@@ -216,6 +222,8 @@ func ExchangePKCE(ctx context.Context, p *preset.Preset, client *http.Client, co
 			exp = parsedExp
 		}
 	}
+
+	identityHint := ExtractIdentityHint(idToken, accessToken)
 
 	rec := &credential.OAuthRecord{
 		Provider:      p.Name,
@@ -227,6 +235,7 @@ func ExchangePKCE(ctx context.Context, p *preset.Preset, client *http.Client, co
 		TokenEndpoint: p.TokenEndpoint,
 		Profile:       p.RefreshProfile,
 		Scopes:        p.Scopes,
+		IdentityHint:  identityHint,
 	}
 	return rec, nil
 }
@@ -385,6 +394,7 @@ func PollDeviceFlow(ctx context.Context, p *preset.Preset, client *http.Client, 
 	var tokenRes struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
 		Token        string `json:"token"`
 		TokenType    string `json:"token_type"`
 		ExpiresIn    int64  `json:"expires_in"`
@@ -406,6 +416,7 @@ func PollDeviceFlow(ctx context.Context, p *preset.Preset, client *http.Client, 
 		if tokenRes.ExpiresIn > 0 {
 			exp = time.Now().Add(time.Duration(tokenRes.ExpiresIn) * time.Second)
 		}
+		identityHint := ExtractIdentityHint(tokenRes.IDToken, tokenRes.AccessToken)
 		rec := &credential.OAuthRecord{
 			Provider:            p.Name,
 			RefreshToken:        tokenRes.RefreshToken,
@@ -418,6 +429,7 @@ func PollDeviceFlow(ctx context.Context, p *preset.Preset, client *http.Client, 
 			Scopes:              p.Scopes,
 			DeviceID:            deviceID,
 			DeviceHeaderProfile: p.DeviceHeaderProfile,
+			IdentityHint:        identityHint,
 		}
 		return rec, false, nil
 	}

@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/oniharnantyo/tinyroute/internal/clients"
@@ -36,13 +34,16 @@ type ProviderModelGroup struct {
 }
 
 // groupModelsByProvider splits sorted "provider:model" ids into per-provider
-// groups. Ids without a provider prefix are grouped under "defaults".
+// groups, ignoring combo ids (prefixed with "combo:").
+// Ids without a provider prefix are grouped under "defaults".
 func groupModelsByProvider(models []string) []ProviderModelGroup {
 	var groups []ProviderModelGroup
 	for _, id := range models {
 		provider, model, ok := strings.Cut(id, ":")
 		if !ok {
 			provider, model = "defaults", id
+		} else if provider == "combo" {
+			continue
 		}
 		if len(groups) > 0 && groups[len(groups)-1].Provider == provider {
 			groups[len(groups)-1].Models = append(groups[len(groups)-1].Models, ModelOption{Value: id, Label: model})
@@ -54,6 +55,21 @@ func groupModelsByProvider(models []string) []ProviderModelGroup {
 		})
 	}
 	return groups
+}
+
+// splitComboOptions extracts combo ids (prefixed with "combo:") into ModelOption
+// items with the prefix stripped in Label.
+func splitComboOptions(models []string) []ModelOption {
+	var combos []ModelOption
+	for _, id := range models {
+		if strings.HasPrefix(id, "combo:") {
+			combos = append(combos, ModelOption{
+				Value: id,
+				Label: strings.TrimPrefix(id, "combo:"),
+			})
+		}
+	}
+	return combos
 }
 
 // contextWindowSuffix is appended to a slot's model id to request the 1M-token
@@ -79,44 +95,14 @@ func SlotValue(slotValues map[string]string, slot clients.ModelSlot) string {
 	return ""
 }
 
-// slotInitJSON renders the current slot values (with any context-window suffix
-// removed) as JSON for the Alpine state in viewClientDetail. The suffix flag
-// lives in the separate oneM map so the picker dialog compares base ids.
-func slotInitJSON(d ClientDetailPageData) string {
-	m := make(map[string]string, len(d.ModelSlots))
-	for _, slot := range d.ModelSlots {
-		m[slot.ID] = strings.TrimSuffix(SlotValue(d.SlotValues, slot), contextWindowSuffix)
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
-}
-
-// oneMInitJSON renders per-slot booleans recording whether the stored slot
-// value carried the context-window suffix, so the 1M checkbox starts checked
-// for models selected with it.
-func oneMInitJSON(d ClientDetailPageData) string {
-	m := make(map[string]bool, len(d.ModelSlots))
-	for _, slot := range d.ModelSlots {
-		m[slot.ID] = strings.HasSuffix(SlotValue(d.SlotValues, slot), contextWindowSuffix)
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
-}
-
-// groupSearchStrings returns a comma-separated list of quoted strings representing
-// the provider name and all model names/values in the group for Alpine's matchesQuery helper.
+// groupSearchStrings returns a space-separated string representing
+// the provider name and all model names/values in the group for data-filter-text.
 func groupSearchStrings(group ProviderModelGroup) string {
-	parts := []string{fmt.Sprintf("%q", group.Provider)}
+	parts := []string{group.Provider}
 	for _, m := range group.Models {
-		parts = append(parts, fmt.Sprintf("%q", m.Label), fmt.Sprintf("%q", m.Value))
+		parts = append(parts, m.Label, m.Value)
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, " ")
 }
 
 // slotPlaceholder returns the text shown when a slot has no model selected.
@@ -148,6 +134,7 @@ type ClientDetailPageData struct {
 	// ProviderModelGroups is RoutableModels split into per-provider groups for
 	// the model picker dialog.
 	ProviderModelGroups []ProviderModelGroup
+	ComboOptions        []ModelOption
 	SlotValues          map[string]string
 	ModelSlots          []clients.ModelSlot
 	ManualSnippet       string

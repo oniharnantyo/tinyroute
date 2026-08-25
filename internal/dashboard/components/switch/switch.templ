@@ -1,0 +1,115 @@
+package switchcomp
+
+import "github.com/oniharnantyo/tinyroute/internal/dashboard/components/utils"
+
+type Size string
+type Type string
+
+const (
+	SizeDefault Size = "default"
+	SizeSm      Size = "sm"
+)
+
+const (
+	TypeSubmit Type = "submit"
+	TypeButton Type = "button"
+	TypeReset  Type = "reset"
+)
+
+type Props struct {
+	ID             string
+	Class          string
+	Attributes     templ.Attributes
+	Name           string
+	Value          string
+	Disabled       bool
+	Type           Type
+	Checked        *bool
+	DefaultChecked bool
+	ReadOnly       bool
+	Required       bool
+	Form           string
+	Size           Size
+}
+
+func initialChecked(p Props) bool {
+	if p.Checked != nil {
+		return *p.Checked
+	}
+	return p.DefaultChecked
+}
+
+// Switch renders a role="switch" button with aria-checked and checked/unchecked state
+// that works natively as a form submit control or interactive switch.
+templ Switch(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.ID == "" {
+		{{ p.ID = utils.RandomID() }}
+	}
+	if p.Size == "" {
+		{{ p.Size = SizeDefault }}
+	}
+	if p.Type == "" {
+		{{ p.Type = TypeSubmit }}
+	}
+	{{ checked := initialChecked(p) }}
+	<button
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		type={ string(p.Type) }
+		if p.Name != "" {
+			name={ p.Name }
+		}
+		if p.Value != "" {
+			value={ p.Value }
+		}
+		if p.Form != "" {
+			form={ p.Form }
+		}
+		data-slot="switch"
+		data-tui-switch
+		data-size={ string(p.Size) }
+		role="switch"
+		if checked {
+			aria-checked="true"
+			data-checked
+			data-state="checked"
+		} else {
+			aria-checked="false"
+			data-unchecked
+			data-state="unchecked"
+		}
+		if p.Disabled {
+			data-disabled
+			aria-disabled="true"
+		}
+		disabled?={ p.Disabled }
+		aria-readonly?={ p.ReadOnly }
+		aria-required?={ p.Required }
+		data-tui-switch-controlled?={ p.Checked != nil }
+		class={
+			utils.CN(
+				"data-checked:bg-primary data-unchecked:bg-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 dark:data-unchecked:bg-input/80 shrink-0 rounded-full border border-transparent focus-visible:ring-3 aria-invalid:ring-3 data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] peer group/switch relative inline-flex items-center transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 data-disabled:cursor-not-allowed data-disabled:opacity-50 cursor-pointer",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		<span
+			data-slot="switch-thumb"
+			if checked {
+				data-checked
+				data-state="checked"
+			} else {
+				data-unchecked
+				data-state="unchecked"
+			}
+			class="bg-background dark:data-unchecked:bg-foreground dark:data-checked:bg-primary-foreground rounded-full group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 group-data-[size=default]/switch:data-checked:translate-x-[calc(100%-2px)] group-data-[size=sm]/switch:data-checked:translate-x-[calc(100%-2px)] group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 pointer-events-none block ring-0 transition-transform"
+		></span>
+	</button>
+}
+

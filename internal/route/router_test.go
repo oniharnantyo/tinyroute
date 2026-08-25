@@ -1,6 +1,7 @@
 package route
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oniharnantyo/tinyroute/internal/config"
@@ -19,7 +20,7 @@ func TestRouter_DirectPrefixResolution(t *testing.T) {
 		},
 	}
 
-	r := New(nil, providers)
+	r := New(providers)
 
 	// Valid whitelisted model
 	res, err := r.Resolve("openai", "openai:gpt-4o")
@@ -61,7 +62,7 @@ func TestRouter_ContextWindowSuffixStripped(t *testing.T) {
 		},
 	}
 
-	r := New(nil, providers)
+	r := New(providers)
 
 	// Suffix variant resolves to the base whitelisted model
 	res, err := r.Resolve("anthropic", "anthropic:claude-sonnet-4-5[1m]")
@@ -76,7 +77,7 @@ func TestRouter_ContextWindowSuffixStripped(t *testing.T) {
 	open := map[string]config.Provider{
 		"any": {Dialect: "anthropic", BaseURL: "https://example.com"},
 	}
-	rOpen := New(nil, open)
+	rOpen := New(open)
 	res, err = rOpen.Resolve("anthropic", "any:claude-sonnet-4-5[1m]")
 	if err != nil {
 		t.Fatalf("unexpected error resolving suffix model on open whitelist: %v", err)
@@ -93,7 +94,7 @@ func TestRouter_ContextWindowSuffixStripped(t *testing.T) {
 			Models:  []string{"claude-sonnet-4-5[1m]"},
 		},
 	}
-	rLit := New(nil, literal)
+	rLit := New(literal)
 	res, err = rLit.Resolve("anthropic", "anthropic:claude-sonnet-4-5[1m]")
 	if err != nil {
 		t.Fatalf("unexpected error resolving literal suffixed whitelist entry: %v", err)
@@ -109,34 +110,36 @@ func TestRouter_ContextWindowSuffixStripped(t *testing.T) {
 	}
 }
 
-func TestRouter_UnprefixedResolution(t *testing.T) {
-	raw := []RawRoute{
-		{
-			From:  "anthropic",
-			Match: "claude-3-*",
-			Chain: []string{"anthropic:claude-3-5-sonnet"},
+func TestRouter_UnprefixedModelError_NoRouteReference(t *testing.T) {
+	providers := map[string]config.Provider{
+		"anthropic": {
+			Dialect: "anthropic",
+			BaseURL: "https://api.anthropic.com",
+			Models:  []string{"claude-sonnet-4-5"},
 		},
 	}
-	entries, err := ParseRoutes(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := New(providers)
 
-	r := New(entries, nil)
-
-	// Unprefixed model matching route
-	res, err := r.Resolve("anthropic", "claude-3-opus")
-	if err != nil {
-		t.Fatalf("unexpected error for matching route: %v", err)
-	}
-	if len(res.Hops) != 1 || res.Hops[0].Provider != "anthropic" || res.Hops[0].Model != "claude-3-5-sonnet" {
-		t.Errorf("unexpected route: %+v", res)
-	}
-
-	// Unprefixed model not matching route rejected
-	_, err = r.Resolve("anthropic", "gpt-4o")
+	// 1. Bare model name that is not a combo fails with unprefixed non-combo error
+	_, err := r.Resolve("anthropic", "claude-sonnet-4-5")
 	if err == nil {
-		t.Errorf("expected error for unprefixed unmatched model")
+		t.Fatalf("expected error for unprefixed non-combo model, got nil")
+	}
+	expectedMsg := `model "claude-sonnet-4-5" is not a combo and has no provider prefix — use "provider:model" or define a combo`
+	if err.Error() != expectedMsg {
+		t.Errorf("expected error %q, got %q", expectedMsg, err.Error())
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "route") {
+		t.Errorf("error message must not mention 'route': %s", err.Error())
+	}
+
+	// 2. Glob-style bare names fail similarly
+	_, err = r.Resolve("anthropic", "claude-3-opus")
+	if err == nil {
+		t.Fatalf("expected error for glob bare model name, got nil")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "route") {
+		t.Errorf("error message must not mention 'route': %s", err.Error())
 	}
 }
 
@@ -148,19 +151,8 @@ func TestRouter_ModelsFiltering(t *testing.T) {
 			Models:  []string{"gpt-4o"},
 		},
 	}
-	raw := []RawRoute{
-		{
-			From:  "openai",
-			Match: "fast",
-			Chain: []string{"openai:gpt-4o"},
-		},
-	}
-	entries, err := ParseRoutes(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	r := New(entries, providers)
+	r := New(providers)
 
 	models := r.Models("openai")
 	seen := make(map[string]bool)
@@ -171,46 +163,11 @@ func TestRouter_ModelsFiltering(t *testing.T) {
 	if !seen["openai:gpt-4o"] {
 		t.Errorf("expected openai:gpt-4o to be returned in Models()")
 	}
-	if !seen["fast"] {
-		t.Errorf("expected explicit route match 'fast' to be returned in Models()")
+	if seen["fast"] {
+		t.Errorf("expected no route matches like 'fast' to be returned")
 	}
 	if seen["gpt-4o"] {
 		t.Errorf("expected unprefixed bare 'gpt-4o' to be filtered out because it does not resolve")
-	}
-}
-
-func TestRouter_ModelsCrossDialectIsolation(t *testing.T) {
-	providers := map[string]config.Provider{
-		"openai": {
-			Dialect: "openai",
-			BaseURL: "https://api.openai.com/v1",
-			Models:  []string{"gpt-4o"},
-		},
-	}
-	raw := []RawRoute{
-		{
-			From:  "anthropic",
-			Match: "claude-alias",
-			Chain: []string{"anthropic:claude-3-5-sonnet"},
-		},
-		{
-			From:  "openai",
-			Match: "*",
-			Chain: []string{"openai:gpt-4o"},
-		},
-	}
-	entries, err := ParseRoutes(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	r := New(entries, providers)
-
-	models := r.Models("openai")
-	for _, m := range models {
-		if m == "claude-alias" {
-			t.Errorf("expected anthropic route 'claude-alias' to NOT be included in openai Models() listing")
-		}
 	}
 }
 
@@ -225,7 +182,7 @@ func TestRouter_ModelsDeterministicOrdering(t *testing.T) {
 			Models:  []string{"claude-3-5-sonnet"},
 		},
 	}
-	r := New(nil, providers)
+	r := New(providers)
 
 	first := r.Models("openai")
 	for i := 0; i < 10; i++ {
@@ -249,7 +206,7 @@ func TestRouter_FaithfulSurfaceGuard(t *testing.T) {
 			Models:  []string{"claude-3-5-sonnet"},
 		},
 	}
-	r := New(nil, providers)
+	r := New(providers)
 
 	// Same-dialect prefix resolves on openai surface
 	res, err := r.Resolve("openai", "openai:gpt-4o")
@@ -267,7 +224,7 @@ func TestRouter_FaithfulSurfaceGuard(t *testing.T) {
 	}
 
 	// When translatable predicate returns true for (anthropic, openai), cross-dialect hop resolves
-	rTrans := New(nil, providers, WithTranslatable(func(from, to string) bool {
+	rTrans := New(providers, WithTranslatable(func(from, to string) bool {
 		return (from == "anthropic" && to == "openai") || (from == "openai" && to == "anthropic")
 	}))
 
@@ -300,5 +257,35 @@ func TestRouter_FaithfulSurfaceGuard(t *testing.T) {
 	}
 	if seen["anthropic:claude-3-5-sonnet"] {
 		t.Errorf("expected anthropic:claude-3-5-sonnet to NOT be in Models('openai')")
+	}
+}
+
+func TestRouter_Models_EveryListedComboResolves(t *testing.T) {
+	providers := map[string]config.Provider{
+		"openai": {
+			Dialect: "openai",
+			Models:  []string{"gpt-4o"},
+		},
+	}
+	combos := []config.Combo{
+		{
+			Name:    "my-combo",
+			Members: []string{"openai:gpt-4o"},
+		},
+	}
+	r := New(providers, WithCombos(combos))
+	models := r.Models("openai")
+
+	foundCombo := false
+	for _, id := range models {
+		if strings.HasPrefix(id, "combo:") {
+			foundCombo = true
+			if _, err := r.Resolve("openai", id); err != nil {
+				t.Errorf("listed combo model %q failed to resolve: %v", id, err)
+			}
+		}
+	}
+	if !foundCombo {
+		t.Errorf("expected combo:my-combo in Models('openai')")
 	}
 }

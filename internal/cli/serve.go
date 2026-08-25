@@ -155,19 +155,7 @@ func cmdServe() *cli.Command {
 				if topo == nil {
 					return nil, fmt.Errorf("no topology loaded")
 				}
-				rawRoutes := make([]route.RawRoute, 0, len(topo.Routes))
-				for _, r := range topo.Routes {
-					rawRoutes = append(rawRoutes, route.RawRoute{
-						From:  r.From,
-						Match: r.Match,
-						Chain: r.Chain,
-					})
-				}
-				entries, err := route.ParseRoutes(rawRoutes)
-				if err != nil {
-					return nil, err
-				}
-				return route.New(entries, topo.Providers, route.WithTranslatable(translate.CanTranslate)), nil
+				return route.New(topo.Providers, route.WithCombos(topo.Combos), route.WithTranslatable(translate.CanTranslate)), nil
 			}
 
 			credStore, err := credential.NewStore(svc.CredentialsPath)
@@ -265,15 +253,16 @@ func cmdServe() *cli.Command {
 					log.Printf("warning: failed to initialize dashboard password store: %v", err)
 				} else {
 					dashDeps := &dashboard.Deps{
-						Service:         svc,
-						PasswordStore:   passStore,
-						SessionStore:    dashboard.NewSessionStore(),
-						LoginLimiter:    dashboard.NewLoginLimiter(),
-						TopologyWatcher: topologyWatcher,
-						KeyWatcher:      keyWatcher,
-						HealthStore:     health,
-						HistoryQuerier:  recorder,
-						RunProbe:        runProbe,
+						Service:           svc,
+						PasswordStore:     passStore,
+						SessionStore:      dashboard.NewSessionStore(),
+						LoginLimiter:      dashboard.NewLoginLimiter(),
+						TopologyWatcher:   topologyWatcher,
+						KeyWatcher:        keyWatcher,
+						HealthStore:       health,
+						HistoryQuerier:    recorder,
+						HistoryAggregator: recorder,
+						RunProbe:          runProbe,
 					}
 					dashboard.RegisterRoutes(mux, dashDeps)
 				}
@@ -354,6 +343,10 @@ func validateConfig(svc config.Service) error {
 		return fmt.Errorf("read %s: %w", svc.ConfigPath, err)
 	}
 
+	for _, w := range config.CheckDeprecated(data) {
+		log.Println(w)
+	}
+
 	topo, err := config.ParseTopology(data)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", svc.ConfigPath, err)
@@ -361,7 +354,7 @@ func validateConfig(svc config.Service) error {
 
 	errs := config.ValidateTopology(topo, dialect.Names())
 	if len(errs) == 0 {
-		log.Printf("config validated: %d provider(s), %d route(s)\n", len(topo.Providers), len(topo.Routes))
+		log.Printf("config validated: %d provider(s)\n", len(topo.Providers))
 		return nil
 	}
 

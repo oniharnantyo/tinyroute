@@ -51,7 +51,7 @@ func cmdMinimalInit() error {
 	// Create minimal config.yaml
 	configPath := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		topo := config.Topology{Providers: map[string]config.Provider{}, Routes: []config.Route{}}
+		topo := config.Topology{Providers: map[string]config.Provider{}}
 		if err := config.WriteTopology(configPath, topo); err != nil {
 			return fmt.Errorf("write %s: %w", configPath, err)
 		}
@@ -144,7 +144,7 @@ func cmdInit(args []string) error {
 
 	configPath := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		topo := config.Topology{Providers: map[string]config.Provider{}, Routes: []config.Route{}}
+		topo := config.Topology{Providers: map[string]config.Provider{}}
 		if err := config.WriteTopology(configPath, topo); err != nil {
 			return fmt.Errorf("write %s: %w", configPath, err)
 		}
@@ -255,6 +255,10 @@ func cmdValidate(args []string) error {
 		return fmt.Errorf("read %s: %w", svc.ConfigPath, err)
 	}
 
+	for _, w := range config.CheckDeprecated(data) {
+		fmt.Println(w)
+	}
+
 	topo, err := config.ParseTopology(data)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", svc.ConfigPath, err)
@@ -262,7 +266,7 @@ func cmdValidate(args []string) error {
 
 	errs := config.ValidateTopology(topo, dialect.Names())
 	if len(errs) == 0 {
-		fmt.Printf("OK: %d provider(s), %d route(s), no errors\n", len(topo.Providers), len(topo.Routes))
+		fmt.Printf("OK: %d provider(s), no errors\n", len(topo.Providers))
 		return nil
 	}
 
@@ -302,22 +306,35 @@ func cmdTest(args []string) error {
 	type hop struct{ provider, model string }
 	seen := map[hop]bool{}
 	var hops []hop
-	for _, r := range topo.Routes {
-		for _, entry := range r.Chain {
-			parts := strings.SplitN(entry, ":", 2)
-			if len(parts) != 2 {
+	for provName, prov := range topo.Providers {
+		for _, m := range prov.Models {
+			if *model != "" && m != *model {
 				continue
 			}
-			h := hop{provider: parts[0], model: parts[1]}
-			if h.model == "$model" {
-				h.model = r.Match
-			}
-			if *model != "" && h.model != *model {
-				continue
-			}
+			h := hop{provider: provName, model: m}
 			if !seen[h] {
 				seen[h] = true
 				hops = append(hops, h)
+			}
+		}
+	}
+	for _, cb := range topo.Combos {
+		for _, mem := range cb.Members {
+			parts := strings.SplitN(mem, ":", 2)
+			if len(parts) == 2 {
+				provSpec := parts[0]
+				targetModel := parts[1]
+				if strings.Contains(provSpec, "@") {
+					provSpec = strings.SplitN(provSpec, "@", 2)[0]
+				}
+				if *model != "" && targetModel != *model {
+					continue
+				}
+				h := hop{provider: provSpec, model: targetModel}
+				if !seen[h] {
+					seen[h] = true
+					hops = append(hops, h)
+				}
 			}
 		}
 	}
@@ -480,8 +497,6 @@ func cmdStatus(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, p.Dialect, authState, cooldown)
 	}
 	tw.Flush()
-
-	fmt.Printf("\nroutes: %d\n", len(topo.Routes))
 
 	var warnings int
 	for name, p := range topo.Providers {
@@ -1530,22 +1545,14 @@ func cmdAuthSet(args []string) error {
 
 	accountName := *accountFlag
 	if accountName != "" {
-		found := false
-		for i, acc := range p.Accounts {
-			if acc.Name == accountName {
-				p.Accounts[i].APIKey = cred
-				p.Accounts[i].Type = "static"
-				found = true
-				break
-			}
+		if err := credential.ValidateAccountName(accountName); err != nil {
+			return fmt.Errorf("invalid account name: %w", err)
 		}
-		if !found {
-			p.Accounts = append(p.Accounts, config.Account{
-				Name:   accountName,
-				Type:   "static",
-				APIKey: cred,
-			})
-		}
+		p = p.UpsertAccount(config.Account{
+			Name:   accountName,
+			Type:   "static",
+			APIKey: cred,
+		})
 	} else {
 		p.APIKey = cred
 	}

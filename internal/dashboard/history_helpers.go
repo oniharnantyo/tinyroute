@@ -144,3 +144,23 @@ func formatBytes(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
+
+// formatCompact formats large numbers into compact human-readable strings (e.g. 1.2k, 2.4M).
+func formatCompact(n int64) string {
+	if n < 0 {
+		return "-" + formatCompact(-n)
+	}
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 1_000_000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
+	}
+	if n < 1_000_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000.0)
+	}
+	if n < 1_000_000_000_000 {
+		return fmt.Sprintf("%.1fB", float64(n)/1_000_000_000.0)
+	}
+	return fmt.Sprintf("%.1fT", float64(n)/1_000_000_000_000.0)
+}

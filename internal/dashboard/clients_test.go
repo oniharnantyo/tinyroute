@@ -1,6 +1,7 @@
 package dashboard_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,6 +134,97 @@ func TestDashboardClientDetailView(t *testing.T) {
 	}
 	if !strings.Contains(body, "data-filter-input") {
 		t.Errorf("expected data-filter-input binding in picker modal")
+	}
+}
+
+func TestDashboardClientDetail_ComboPickerGrouping(t *testing.T) {
+	mux, sessID, tempDir := setupTestDashboard(t)
+
+	topoPath := filepath.Join(tempDir, "tinyroute.yaml")
+	topoContent := `
+providers:
+  mock-anthropic:
+    dialect: anthropic
+    base_url: https://api.anthropic.com
+    models:
+    - claude-3-5-sonnet-20241022
+combos:
+- name: claude-fast
+  members:
+  - mock-anthropic:claude-3-5-sonnet-20241022
+- name: claude-smart
+  members:
+  - mock-anthropic:claude-3-5-sonnet-20241022
+`
+	if err := os.WriteFile(topoPath, []byte(topoContent), 0600); err != nil {
+		t.Fatalf("write topo: %v", err)
+	}
+	t.Setenv("TINYROUTE_CONFIG", topoPath)
+
+	req := httptest.NewRequest("GET", "/dashboard/clients/claude", nil)
+	req.AddCookie(&http.Cookie{Name: dashboard.SessionCookieName, Value: sessID})
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for /dashboard/clients/claude, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// Assert "Combos" header is present
+	if !strings.Contains(body, "Combos") {
+		t.Errorf("expected 'Combos' header in picker dialog")
+	}
+
+	// Assert no combo renders under a "defaults" header
+	if strings.Contains(body, ">defaults<") || strings.Contains(body, ">Defaults<") {
+		t.Errorf("expected no defaults group header when all entries are prefixed")
+	}
+
+	// Assert combo entries render with combo:<name> values
+	if !strings.Contains(body, `data-model-val="combo:claude-fast"`) {
+		t.Errorf("expected data-model-val for combo:claude-fast")
+	}
+	if !strings.Contains(body, `data-model-val="combo:claude-smart"`) {
+		t.Errorf("expected data-model-val for combo:claude-smart")
+	}
+
+	// Apply submission with combo key form
+	form := url.Values{}
+	form.Set("base_url", "http://127.0.0.1:8787/anthropic")
+	form.Set("key_strategy", "mint")
+	form.Set("slot_sonnet", "combo:claude-fast")
+
+	reqApply := httptest.NewRequest("POST", "/dashboard/clients/claude/apply", strings.NewReader(form.Encode()))
+	reqApply.Host = "127.0.0.1:8787"
+	reqApply.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqApply.AddCookie(&http.Cookie{Name: dashboard.SessionCookieName, Value: sessID})
+	recApply := httptest.NewRecorder()
+
+	mux.ServeHTTP(recApply, reqApply)
+
+	if recApply.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for /dashboard/clients/claude/apply, got %d", recApply.Code)
+	}
+
+	// Verify written settings.json contains combo:claude-fast verbatim
+	claudeSettings := filepath.Join(tempDir, ".claude", "settings.json")
+	data, err := os.ReadFile(claudeSettings)
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("parse settings.json: %v", err)
+	}
+	envMap, ok := settings["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected env in settings.json: %s", string(data))
+	}
+	if envMap["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "combo:claude-fast" {
+		t.Errorf("expected ANTHROPIC_DEFAULT_SONNET_MODEL to be combo:claude-fast, got: %v", envMap["ANTHROPIC_DEFAULT_SONNET_MODEL"])
 	}
 }
 
@@ -450,5 +542,143 @@ func TestDashboardOpencodePreservesConfiguredKeyOnReuse(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"apiKey": "tr_live_abcd1234existingsecret"`) {
 		t.Errorf("expected apiKey 'tr_live_abcd1234existingsecret' to be preserved, got:\n%s", string(data))
+	}
+}
+
+func TestDashboardClientDetail_ModelPickerTabsRender(t *testing.T) {
+	mux, sessID, tempDir := setupTestDashboard(t)
+
+	topoContent := `
+providers:
+  mock-anthropic:
+    dialect: anthropic
+    base_url: https://api.anthropic.com
+    models:
+    - claude-3-5-sonnet-20241022
+    - claude-3-5-haiku-20241022
+combos:
+- name: claude-fast
+  members:
+  - mock-anthropic:claude-3-5-sonnet-20241022
+- name: claude-smart
+  members:
+  - mock-anthropic:claude-3-5-sonnet-20241022
+`
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(topoContent), 0600); err != nil {
+		t.Fatalf("write topo: %v", err)
+	}
+	t.Setenv("TINYROUTE_CONFIG", configPath)
+
+	// Write Claude settings with sonnet set to combo:claude-fast
+	claudeDir := filepath.Join(tempDir, ".claude")
+	_ = os.MkdirAll(claudeDir, 0755)
+	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{
+		"env": {
+			"ANTHROPIC_BASE_URL": "http://127.0.0.1:8787/anthropic",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL": "combo:claude-fast"
+		}
+	}`), 0600)
+
+	req := httptest.NewRequest("GET", "/dashboard/clients/claude", nil)
+	req.AddCookie(&http.Cookie{Name: dashboard.SessionCookieName, Value: sessID})
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for /dashboard/clients/claude, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	// 1. Tab triggers exist when combos exist
+	if !strings.Contains(body, `data-tui-tabs-value="models"`) || !strings.Contains(body, `data-tui-tabs-value="combos"`) {
+		t.Errorf("expected tab triggers for models and combos")
+	}
+
+	// 2. Disjoint filter groups
+	if !strings.Contains(body, `data-filter-input="picker-sonnet-models"`) {
+		t.Errorf("expected models search input with picker-sonnet-models")
+	}
+	if !strings.Contains(body, `data-filter-input="picker-sonnet-combos"`) {
+		t.Errorf("expected combos search input with picker-sonnet-combos")
+	}
+	if !strings.Contains(body, `data-filter-item="picker-sonnet-models"`) {
+		t.Errorf("expected models filter items for picker-sonnet-models")
+	}
+	if !strings.Contains(body, `data-filter-item="picker-sonnet-combos"`) {
+		t.Errorf("expected combos filter items for picker-sonnet-combos")
+	}
+
+	// 3. Provider group wrapper has data-filter-item and groupSearchStrings data-filter-text
+	if !strings.Contains(body, `data-filter-item="picker-sonnet-models" data-filter-text="mock-anthropic claude-3-5-haiku-20241022 mock-anthropic:claude-3-5-haiku-20241022 claude-3-5-sonnet-20241022 mock-anthropic:claude-3-5-sonnet-20241022"`) {
+		t.Errorf("expected group wrapper data-filter-text with provider and model info, body contains: %s", body)
+	}
+
+	// 4. DefaultValue is combos for combo-selected slot sonnet
+	if !strings.Contains(body, `data-tui-tabs-value="combos" data-tui-tabs-state="active"`) &&
+		!strings.Contains(body, `data-tui-tabs-state="active" data-tui-tabs-value="combos"`) {
+		t.Errorf("expected combos tab trigger to be active for slot with combo value")
+	}
+
+	// 5. Check indicator on selected combo row for slot sonnet, and omitted on unselected combo row
+	sonnetFastPattern := `data-slot-id="sonnet" data-model-val="combo:claude-fast"`
+	fastIdx := strings.Index(body, sonnetFastPattern)
+	if fastIdx == -1 {
+		t.Fatalf("expected sonnet slot combo:claude-fast button")
+	}
+	btnSubstr := body[fastIdx:]
+	if endBtn := strings.Index(btnSubstr, "</button>"); endBtn != -1 {
+		btnHTML := btnSubstr[:endBtn]
+		if !strings.Contains(btnHTML, "text-primary") || !strings.Contains(btnHTML, "<svg") {
+			t.Errorf("expected check indicator in selected combo button for sonnet, got HTML: %s", btnHTML)
+		}
+	}
+	sonnetSmartPattern := `data-slot-id="sonnet" data-model-val="combo:claude-smart"`
+	smartIdx := strings.Index(body, sonnetSmartPattern)
+	if smartIdx != -1 {
+		btnSubstr := body[smartIdx:]
+		if endBtn := strings.Index(btnSubstr, "</button>"); endBtn != -1 {
+			btnHTML := btnSubstr[:endBtn]
+			if strings.Contains(btnHTML, "text-primary") || strings.Contains(btnHTML, "<svg") {
+				t.Errorf("expected NO check indicator in unselected combo button for sonnet, got HTML: %s", btnHTML)
+			}
+		}
+	}
+
+	// 6. Clear row (None / Default) present in both panes for optional slots (e.g. opus / haiku)
+	if !strings.Contains(body, `data-filter-item="picker-haiku-models"`) || !strings.Contains(body, `data-filter-item="picker-haiku-combos"`) {
+		t.Errorf("expected clear row in both panes for optional slot")
+	}
+
+	// 7. No-combos scenario: Tab bar omitted when no combos configured
+	topoNoCombosContent := `
+providers:
+  mock-anthropic:
+    dialect: anthropic
+    base_url: https://api.anthropic.com
+    models:
+    - claude-3-5-sonnet-20241022
+`
+	if err := os.WriteFile(configPath, []byte(topoNoCombosContent), 0600); err != nil {
+		t.Fatalf("write topo: %v", err)
+	}
+
+	reqNoCombos := httptest.NewRequest("GET", "/dashboard/clients/claude", nil)
+	reqNoCombos.AddCookie(&http.Cookie{Name: dashboard.SessionCookieName, Value: sessID})
+	recNoCombos := httptest.NewRecorder()
+
+	mux.ServeHTTP(recNoCombos, reqNoCombos)
+	if recNoCombos.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recNoCombos.Code)
+	}
+	bodyNoCombos := recNoCombos.Body.String()
+
+	if strings.Contains(bodyNoCombos, `data-tui-tabs-trigger`) {
+		t.Errorf("expected NO tab triggers when no combos are configured")
+	}
+	if !strings.Contains(bodyNoCombos, `data-filter-input="picker-sonnet-models"`) {
+		t.Errorf("expected flat models pane with picker-sonnet-models search input")
 	}
 }

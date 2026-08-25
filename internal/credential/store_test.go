@@ -3,6 +3,7 @@ package credential
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,34 @@ func TestStore_AccountReKeyingAndMigration(t *testing.T) {
 		if r.RefreshToken == "rt-legacy-123" || r.RefreshToken == "rt-work-456" {
 			t.Errorf("expected refresh token to be masked in ListMasked, got %s", r.RefreshToken)
 		}
+	}
+}
+
+func TestStore_IdentityHintNeverMarshalled(t *testing.T) {
+	dir := t.TempDir()
+	credPath := filepath.Join(dir, "credentials.json")
+	store, err := NewStore(credPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	rec := OAuthRecord{
+		Provider:     "codex",
+		Account:      "work",
+		RefreshToken: "rt-123",
+		IdentityHint: "super-secret-identity-hint@example.com",
+	}
+
+	if err := store.Save(rec); err != nil {
+		t.Fatalf("failed to save record: %v", err)
+	}
+
+	data, err := os.ReadFile(credPath)
+	if err != nil {
+		t.Fatalf("failed to read credentials.json: %v", err)
+	}
+
+	if string(data) == "" || strings.Contains(string(data), "super-secret-identity-hint") || strings.Contains(string(data), "IdentityHint") {
+		t.Errorf("expected credentials.json not to contain IdentityHint, but file content was:\n%s", string(data))
 	}
 }

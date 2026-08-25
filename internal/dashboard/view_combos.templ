@@ -1,0 +1,775 @@
+package dashboard
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/badge"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dialog"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/empty"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/radio"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/separator"
+	switchcomp "github.com/oniharnantyo/tinyroute/internal/dashboard/components/switch"
+)
+
+type ComboItem struct {
+	Name         string
+	Mode         string
+	Members      []string
+	Capabilities []string
+	Enabled      bool
+}
+
+type WizardDraft struct {
+	Step         int
+	Name         string
+	InitialName  string
+	IsEdit       bool
+	Members      []string
+	Mode         string
+	Capabilities []string
+	Error        string
+}
+
+type CombosPageData struct {
+	Combos         []ComboItem
+	ModelOptions   []string // unpinned provider:model options
+	AccountOptions []string // provider@account options for multi-account providers
+	Draft          WizardDraft
+	DialogOpen     bool
+}
+
+type AccountGroup struct {
+	Provider string
+	Accounts []string
+}
+
+templ CombosPage(data CombosPageData) {
+	<div class="space-y-6">
+		<!-- Flash/error feedback renders as a toast via the layout Toaster's
+		     checkUrlFlash(); no static banner here. -->
+
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+			<div>
+				<h2 class="text-xl font-bold tracking-tight text-foreground">Model Combos</h2>
+				<p class="text-xs text-muted-foreground">Manage multi-model combos: ordered sequences, load-balanced pools, and fused panels</p>
+			</div>
+
+			<!-- Create Combo Trigger (POST to start wizard at fresh step 1 draft) -->
+			<form method="POST" action="/dashboard/combos/wizard">
+				<input type="hidden" name="action" value="open_create"/>
+				@button.Button(button.Props{Class: "shadow-xs gap-2", Type: button.TypeSubmit}) {
+					@icon.Plus(icon.Props{Class: "size-4"})
+					<span>New Combo</span>
+				}
+			</form>
+		</div>
+
+		if len(data.Combos) == 0 {
+			@empty.Empty() {
+				@empty.Header() {
+					@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+						@icon.Layers()
+					}
+					@empty.Title() { No combos configured }
+					@empty.Description() { Combos combine multiple models into ordered sequences, load-balanced pools, or fused panels. }
+				}
+				<form method="POST" action="/dashboard/combos/wizard">
+					<input type="hidden" name="action" value="open_create"/>
+					@button.Button(button.Props{Class: "gap-2", Type: button.TypeSubmit}) {
+						@icon.Plus(icon.Props{Class: "size-4"})
+						<span>Create Combo</span>
+					}
+				</form>
+			}
+		} else {
+			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+				for _, c := range data.Combos {
+					@card.Card(card.Props{Class: comboCardClass(c.Enabled)}) {
+						@card.Header(card.HeaderProps{Class: "space-y-1.5 pb-3 border-b border-border/40"}) {
+							<div class="flex items-center justify-between gap-2">
+								<div class="flex items-center gap-2 min-w-0">
+									<div class={ comboIconBoxClass(c.Enabled) }>
+										@icon.Layers(icon.Props{Class: "size-4"})
+									</div>
+									<h3 class="font-bold text-base text-foreground truncate">{ c.Name }</h3>
+								</div>
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[11px] font-mono capitalize shrink-0"}) {
+									{ c.Mode }
+								}
+							</div>
+						}
+
+						@card.Content(card.ContentProps{Class: "py-4 space-y-4 flex-1"}) {
+							<div>
+								<span class="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground block mb-2">Members</span>
+								<div class="space-y-1.5">
+									for i, m := range visibleMembers(c.Members) {
+										<div class="flex items-center gap-2 text-xs bg-accent/40 rounded-md px-2.5 py-1.5 font-mono text-muted-foreground border border-border/50">
+											<span class="w-4 h-4 rounded-full bg-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
+												{ strconv.Itoa(i + 1) }
+											</span>
+											<span class="truncate text-foreground font-medium">{ stripAccountPin(m) }</span>
+										</div>
+									}
+									if len(c.Members) > 3 {
+										<div
+											class="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-2.5 py-1 font-mono text-muted-foreground border border-dashed border-border/60 cursor-help"
+											title={ hiddenMembersTitle(c.Members[3:]) }
+										>
+											<span class="font-medium">{ fmt.Sprintf("+%d more…", len(c.Members)-3) }</span>
+										</div>
+									}
+								</div>
+							</div>
+
+							if len(c.Capabilities) > 0 {
+								<div>
+									<span class="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground block mb-1.5">Capabilities</span>
+									<div class="flex flex-wrap gap-1">
+										for _, cap := range c.Capabilities {
+											@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-[10px] uppercase font-mono py-0"}) {
+												{ cap }
+											}
+										}
+									</div>
+								</div>
+							}
+						}
+
+						@card.Footer(card.FooterProps{Class: "pt-3 border-t border-border/40 flex items-center justify-between gap-2"}) {
+							<div class="flex items-center gap-2">
+								<form method="POST" action="/dashboard/combos/toggle" class="inline-flex items-center">
+									<input type="hidden" name="name" value={ c.Name }/>
+									@switchcomp.Switch(switchcomp.Props{
+										Checked: &c.Enabled,
+										Attributes: templ.Attributes{
+											"aria-label": fmt.Sprintf("Toggle %s", c.Name),
+											"title":      fmt.Sprintf("Toggle %s", c.Name),
+										},
+									})
+								</form>
+							</div>
+
+							<div class="flex items-center gap-2">
+								<form method="POST" action="/dashboard/combos/wizard">
+									<input type="hidden" name="action" value="open_edit"/>
+									<input type="hidden" name="name" value={ c.Name }/>
+									@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Type: button.TypeSubmit, Class: "gap-1.5 text-xs"}) {
+										@icon.Pencil(icon.Props{Class: "size-3.5"})
+										<span>Edit</span>
+									}
+								</form>
+
+								@dialog.Trigger(dialog.TriggerProps{For: "dialog-delete-" + c.Name}) {
+									@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Type: button.TypeButton, Class: "gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"}) {
+										@icon.Trash2(icon.Props{Class: "size-3.5"})
+										<span>Delete</span>
+									}
+								}
+							</div>
+						}
+					}
+
+					<!-- Delete Confirmation Dialog (Destructive Dialog Pattern) -->
+					@dialog.Dialog(dialog.Props{ID: "dialog-delete-" + c.Name}) {
+						@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+							@dialog.Header() {
+								@dialog.Title() {
+									Delete Combo
+								}
+								@dialog.Description() {
+									Are you sure you want to delete combo <strong class="text-foreground">{ c.Name }</strong>?
+								}
+							}
+							<div class="text-xs text-muted-foreground p-3 rounded-md bg-destructive/10 border border-destructive/20 space-y-1 mt-2 text-left">
+								<p class="font-medium text-destructive">Warning: Combo routing will be affected.</p>
+								<p>Any client requesting model <code class="font-mono text-destructive">{ c.Name }</code> will fail if no route matches.</p>
+							</div>
+							<form method="POST" action="/dashboard/combos/delete" class="mt-4">
+								<input type="hidden" name="name" value={ c.Name }/>
+								@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4"}) {
+									@dialog.Close(dialog.CloseProps{For: "dialog-delete-" + c.Name}) {
+										@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+											Cancel
+										}
+									}
+									@button.Button(button.Props{Variant: button.VariantDestructive, Type: button.TypeSubmit}) {
+										Delete Combo
+									}
+								}
+							</form>
+						}
+					}
+				}
+			</div>
+		}
+
+		<!-- 5-Step Wizard Dialog -->
+		@dialog.Dialog(dialog.Props{ID: "dialog-combo-wizard", DisableClickAway: true, Open: data.DialogOpen}) {
+			@dialog.Content(dialog.ContentProps{Class: "max-h-[90vh] overflow-y-auto", Attributes: templ.Attributes{"style": "width: 75vw; max-width: 75vw;"}}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						if data.Draft.IsEdit {
+							Edit Combo
+						} else {
+							Create Combo
+						}
+					}
+					@dialog.Description() {
+						5-step guided wizard for configuring multi-model combos
+					}
+				}
+
+				<!-- Step Indicator (Option B: Bordered Step Pills/Cards with Badges) -->
+				<div class="py-2.5">
+					<div class="flex items-center justify-between gap-1.5 text-xs">
+						for i, title := range []string{"Name", "Members", "Mode", "Caps", "Review"} {
+							{{ stepNum := i + 1 }}
+							<div class={ stepCardClass(stepNum, data.Draft.Step) }>
+								if stepNum < data.Draft.Step {
+									<span class="size-4 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0">
+										@icon.Check(icon.Props{Class: "size-3"})
+									</span>
+								} else if stepNum == data.Draft.Step {
+									<span class="size-4 rounded-full bg-primary text-primary-foreground font-bold flex items-center justify-center text-[10px] shrink-0">
+										{ strconv.Itoa(stepNum) }
+									</span>
+								} else {
+									<span class="size-4 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[10px] shrink-0">
+										{ strconv.Itoa(stepNum) }
+									</span>
+								}
+								<span class="truncate font-medium">{ title }</span>
+							</div>
+							if i < 4 {
+								<span class="text-muted-foreground/50 shrink-0 text-xs font-semibold select-none">›</span>
+							}
+						}
+					</div>
+					@separator.Separator(separator.Props{Class: "mt-3"})
+				</div>
+
+				if data.Draft.Error != "" {
+					<div class="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive flex items-center gap-2 mb-4">
+						@icon.CircleAlert(icon.Props{Class: "size-4 shrink-0"})
+						<span>{ data.Draft.Error }</span>
+					</div>
+				}
+
+				<form method="POST" action="/dashboard/combos/wizard" class="space-y-4">
+					<input type="hidden" name="step" value={ strconv.Itoa(data.Draft.Step) }/>
+					<input type="hidden" name="is_edit" value={ strconv.FormatBool(data.Draft.IsEdit) }/>
+					<input type="hidden" name="initial_name" value={ data.Draft.InitialName }/>
+					<input type="hidden" name="members_json" value={ strings.Join(data.Draft.Members, ",") }/>
+					<input type="hidden" name="mode" value={ data.Draft.Mode }/>
+					<input type="hidden" name="capabilities_json" value={ strings.Join(data.Draft.Capabilities, ",") }/>
+
+					<!-- Step 1: Name -->
+					if data.Draft.Step == 1 {
+						<div class="space-y-3 py-2">
+							<div class="space-y-1.5">
+								@label.Label(label.Props{For: "wizard-combo-name"}) {
+									Combo Name
+								}
+								@input.Input(input.Props{
+									ID:          "wizard-combo-name",
+									Name:        "name",
+									Value:       data.Draft.Name,
+									Placeholder: "e.g. coding-priority, team-pool",
+									Class:       "font-mono",
+								})
+								<p class="text-[11px] text-muted-foreground">
+									Allowed characters: letters, numbers, '.', '-', and '_'. Must not contain colons.
+								</p>
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-6 flex justify-between"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-combo-wizard"}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "next_step_1"}}) {
+								Next: Members →
+							}
+						}
+					}
+
+					<!-- Step 2: Members -->
+					if data.Draft.Step == 2 {
+						<input type="hidden" name="name" value={ data.Draft.Name }/>
+						<div class="space-y-4 py-2">
+							<div class="space-y-3 p-3.5 rounded-lg bg-muted/40 border border-border/70">
+								<div class="flex items-center justify-between">
+									<span class="text-xs font-semibold text-foreground">Add Member</span>
+									<span class="text-[11px] text-muted-foreground font-mono">Model → Connection (if multi-account) → Add</span>
+								</div>
+								<div class="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-end">
+									<div class="flex-1 min-w-[200px] space-y-1">
+										<label for="wizard-selected-model" class="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block">Model</label>
+										<select id="wizard-selected-model" name="selected_model" class="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+											<option value="">— Select Model —</option>
+											for _, grp := range groupModelsByProvider(data.ModelOptions) {
+												<optgroup label={ grp.Provider } data-provider={ grp.Provider }>
+													for _, m := range grp.Models {
+														<option value={ m.Value } data-provider={ grp.Provider }>{ m.Label }</option>
+													}
+												</optgroup>
+											}
+										</select>
+									</div>
+									<div class="flex-1 min-w-[200px] space-y-1">
+										<label for="wizard-selected-account" class="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block">Connection / Account</label>
+										<select id="wizard-selected-account" name="selected_account" disabled class="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed">
+											<option value="any">Select a model first</option>
+										</select>
+									</div>
+									<div class="shrink-0">
+										@button.Button(button.Props{Variant: button.VariantSecondary, Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "add_member"}, Class: "w-full sm:w-auto gap-1 text-xs h-[38px]"}) {
+											@icon.Plus(icon.Props{Class: "size-3.5"})
+											<span>Add</span>
+										}
+									</div>
+								</div>
+								<p class="text-[11px] text-muted-foreground leading-relaxed">
+									Select a model first — the connection list then offers that provider's accounts. Pin the member to one connection, or choose Any connection. At least one member is required.
+								</p>
+							</div>
+
+							<div class="space-y-2">
+								<span class="text-xs font-semibold text-foreground block">Current Members ({ strconv.Itoa(len(data.Draft.Members)) })</span>
+								if len(data.Draft.Members) == 0 {
+									<div class="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
+										No members added yet. Pick a model above to add the first member.
+									</div>
+								} else {
+									<div class="space-y-2">
+										for idx, mem := range data.Draft.Members {
+											<div class="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-accent/40 border border-border/60">
+												<div class="flex items-center gap-2.5 min-w-0">
+													<span class="w-5 h-5 rounded-full bg-primary text-primary-foreground font-bold flex items-center justify-center text-[10px] shrink-0">
+														{ strconv.Itoa(idx + 1) }
+													</span>
+													<span class="font-mono text-xs text-foreground truncate font-medium">{ mem }</span>
+												</div>
+												<div class="flex items-center gap-1 shrink-0">
+													<!-- Move Up -->
+													<button
+														type="submit"
+														name="action"
+														value={ fmt.Sprintf("move_up_%d", idx) }
+														disabled?={ idx == 0 }
+														class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+														title="Move Up"
+													>
+														@icon.ChevronUp(icon.Props{Class: "size-4"})
+													</button>
+													<!-- Move Down -->
+													<button
+														type="submit"
+														name="action"
+														value={ fmt.Sprintf("move_down_%d", idx) }
+														disabled?={ idx == len(data.Draft.Members)-1 }
+														class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+														title="Move Down"
+													>
+														@icon.ChevronDown(icon.Props{Class: "size-4"})
+													</button>
+													<!-- Remove -->
+													<button
+														type="submit"
+														name="action"
+														value={ fmt.Sprintf("remove_%d", idx) }
+														class="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors ml-1 cursor-pointer"
+														title="Remove"
+													>
+														@icon.X(icon.Props{Class: "size-4"})
+													</button>
+												</div>
+											</div>
+										}
+									</div>
+								}
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-6 flex justify-between"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "back_step_1"}}) {
+								← Back
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "next_step_2"}}) {
+								Next: Mode →
+							}
+						}
+					}
+
+					<!-- Step 3: Mode -->
+					if data.Draft.Step == 3 {
+						<input type="hidden" name="name" value={ data.Draft.Name }/>
+						<div class="space-y-4 py-2">
+							@label.Label() {
+								Select Execution Mode
+							}
+							<div class="space-y-3">
+								<label class="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors">
+									@radio.Radio(radio.Props{
+										Name:    "draft_mode",
+										Value:   "ordered",
+										Checked: data.Draft.Mode == "ordered" || data.Draft.Mode == "",
+										Class:   "mt-0.5",
+									})
+									<div>
+										<div class="text-xs font-semibold text-foreground">Ordered (Default)</div>
+										<p class="text-[11px] text-muted-foreground mt-0.5">
+											Attempts members in sequence. On failure or rate limits, the request moves to the next member.
+										</p>
+									</div>
+								</label>
+
+								<label class="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors">
+									@radio.Radio(radio.Props{
+										Name:    "draft_mode",
+										Value:   "pool",
+										Checked: data.Draft.Mode == "pool",
+										Class:   "mt-0.5",
+									})
+									<div>
+										<div class="text-xs font-semibold text-foreground">Pool (Load Balanced)</div>
+										<p class="text-[11px] text-muted-foreground mt-0.5">
+											Distributes requests evenly across all healthy members in the panel.
+										</p>
+									</div>
+								</label>
+
+								<label class="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors">
+									@radio.Radio(radio.Props{
+										Name:    "draft_mode",
+										Value:   "fused",
+										Checked: data.Draft.Mode == "fused",
+										Class:   "mt-0.5",
+									})
+									<div>
+										<div class="text-xs font-semibold text-foreground">Fused</div>
+										<p class="text-[11px] text-muted-foreground mt-0.5">
+											Combines outputs or synthesizes responses across multiple candidate models.
+										</p>
+									</div>
+								</label>
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-6 flex justify-between"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "back_step_2"}}) {
+								← Back
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "next_step_3"}}) {
+								Next: Capabilities →
+							}
+						}
+					}
+
+					<!-- Step 4: Capabilities -->
+					if data.Draft.Step == 4 {
+						<input type="hidden" name="name" value={ data.Draft.Name }/>
+						<div class="space-y-4 py-2">
+							<div>
+								@label.Label() {
+									Supported Capabilities (Optional)
+								}
+								<p class="text-[11px] text-muted-foreground mt-0.5">
+									Select multimodal capabilities supported by this combo panel.
+								</p>
+							</div>
+
+							<div class="grid grid-cols-2 gap-3">
+								for _, capName := range []string{"vision", "pdf", "audio", "video"} {
+									<label class="flex items-center gap-2.5 p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors">
+										<input
+											type="checkbox"
+											name="draft_caps"
+											value={ capName }
+											checked?={ isCapabilitySelected(capName, data.Draft.Capabilities) }
+											class="rounded border-input text-primary focus:ring-ring size-4"
+										/>
+										<span class="text-xs font-medium text-foreground uppercase font-mono">{ capName }</span>
+									</label>
+								}
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-6 flex justify-between"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "back_step_3"}}) {
+								← Back
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "next_step_4"}}) {
+								Next: Review →
+							}
+						}
+					}
+
+					<!-- Step 5: Review & Save -->
+					if data.Draft.Step == 5 {
+						<input type="hidden" name="name" value={ data.Draft.Name }/>
+						<div class="space-y-4 py-2">
+							<div class="p-4 rounded-lg bg-accent/30 border border-border space-y-3 text-xs">
+								<div class="flex justify-between items-center py-1 border-b border-border/40">
+									<span class="text-muted-foreground font-medium">Combo Name:</span>
+									<span class="font-bold text-foreground font-mono">{ data.Draft.Name }</span>
+								</div>
+								<div class="flex justify-between items-center py-1 border-b border-border/40">
+									<span class="text-muted-foreground font-medium">Execution Mode:</span>
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "font-mono capitalize"}) {
+										{ data.Draft.Mode }
+									}
+								</div>
+								<div class="py-1 border-b border-border/40 space-y-1.5">
+									<span class="text-muted-foreground font-medium block">Members:</span>
+									<div class="space-y-1 pl-2">
+										for i, m := range data.Draft.Members {
+											<div class="flex items-center gap-2 font-mono text-[11px] text-foreground">
+												<span class="text-muted-foreground">{ strconv.Itoa(i + 1) }.</span>
+												<span>{ m }</span>
+											</div>
+										}
+									</div>
+								</div>
+								<div class="flex justify-between items-center py-1">
+									<span class="text-muted-foreground font-medium">Capabilities:</span>
+									if len(data.Draft.Capabilities) > 0 {
+										<span class="font-mono text-[11px] uppercase text-foreground">{ strings.Join(data.Draft.Capabilities, ", ") }</span>
+									} else {
+										<span class="text-muted-foreground italic">None specified</span>
+									}
+								</div>
+							</div>
+						</div>
+
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-6 flex justify-between"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "back_step_4"}}) {
+								← Back
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "action", "value": "submit_create"}, Class: "gap-1.5"}) {
+								@icon.Check(icon.Props{Class: "size-4"})
+								if data.Draft.IsEdit {
+									<span>Save Changes</span>
+								} else {
+									<span>Create Combo</span>
+								}
+							}
+						}
+					}
+				</form>
+			}
+		}
+
+		<div id="wizard-accounts-data" class="hidden" data-accounts={ accountsJSON(data.AccountOptions) }></div>
+		<script>
+			(function() {
+				function getAccountsData() {
+					const el = document.getElementById('wizard-accounts-data');
+					if (!el) return {};
+					try {
+						return JSON.parse(el.dataset.accounts || '{}');
+					} catch (e) {
+						return {};
+					}
+				}
+
+				function setAccountOptions(accSel, anyLabel, prov, accounts) {
+					accSel.innerHTML = '';
+					const any = document.createElement('option');
+					any.value = 'any';
+					any.textContent = anyLabel;
+					accSel.appendChild(any);
+					if (accounts.length > 0) {
+						const group = document.createElement('optgroup');
+						group.label = prov;
+						for (let i = 0; i < accounts.length; i++) {
+							const opt = document.createElement('option');
+							opt.value = prov + '@' + accounts[i];
+							opt.textContent = accounts[i];
+							group.appendChild(opt);
+						}
+						accSel.appendChild(group);
+					}
+				}
+
+				function syncAccountSelect() {
+					const modelSel = document.getElementById('wizard-selected-model') || document.querySelector('select[name="selected_model"]');
+					const accSel = document.getElementById('wizard-selected-account') || document.querySelector('select[name="selected_account"]');
+					if (!modelSel || !accSel) return;
+
+					const accountsByProvider = getAccountsData();
+					const selectedVal = modelSel.value || '';
+					let prov = '';
+					if (selectedVal.indexOf(':') !== -1) {
+						prov = selectedVal.split(':')[0];
+					}
+
+					const accounts = (prov && accountsByProvider[prov]) ? accountsByProvider[prov] : [];
+
+					// No model selected: the connection choice is not meaningful yet
+					if (!prov) {
+						accSel.disabled = true;
+						setAccountOptions(accSel, 'Select a model first', '', []);
+						return;
+					}
+
+					// Model selected: offer that provider's accounts with the first
+					// account preselected; providers with <2 accounts have no pin
+					// choice, so the member composes unpinned (Any)
+					if (accounts.length > 0) {
+						setAccountOptions(accSel, 'Any connection', prov, accounts);
+						accSel.disabled = false;
+						accSel.value = prov + '@' + accounts[0];
+					} else {
+						accSel.disabled = true;
+						setAccountOptions(accSel, 'Any connection (only option)', prov, []);
+						accSel.value = 'any';
+					}
+				}
+
+				document.addEventListener('change', function(e) {
+					if (e.target && (e.target.name === 'selected_model' || e.target.id === 'wizard-selected-model')) {
+						syncAccountSelect();
+					}
+				});
+
+				document.addEventListener('input', function(e) {
+					if (e.target && (e.target.name === 'selected_model' || e.target.id === 'wizard-selected-model')) {
+						syncAccountSelect();
+					}
+				});
+
+				if (document.readyState === 'loading') {
+					document.addEventListener('DOMContentLoaded', syncAccountSelect);
+				} else {
+					syncAccountSelect();
+				}
+			})();
+		</script>
+	</div>
+}
+
+func stepCardClass(step int, currentStep int) string {
+	if step == currentStep {
+		return "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-primary bg-primary/10 text-primary font-semibold shadow-2xs transition-colors"
+	}
+	if step < currentStep {
+		return "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-muted/30 text-foreground transition-colors"
+	}
+	return "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/60 bg-background text-muted-foreground/70 transition-colors"
+}
+
+func stepClass(step int, currentStep int) string {
+	if step == currentStep {
+		return "text-primary font-bold"
+	}
+	if step < currentStep {
+		return "text-foreground"
+	}
+	return "text-muted-foreground/60"
+}
+
+func isMemberChosen(candidate string, members []string) bool {
+	for _, m := range members {
+		if m == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func isCapabilitySelected(capName string, capabilities []string) bool {
+	for _, c := range capabilities {
+		if c == capName {
+			return true
+		}
+	}
+	return false
+}
+
+func groupAccountsByProvider(accounts []string) []AccountGroup {
+	provMap := make(map[string][]string)
+	var provOrder []string
+	for _, accSpec := range accounts {
+		parts := strings.SplitN(accSpec, "@", 2)
+		if len(parts) == 2 {
+			prov, accName := parts[0], parts[1]
+			if _, exists := provMap[prov]; !exists {
+				provOrder = append(provOrder, prov)
+			}
+			provMap[prov] = append(provMap[prov], accName)
+		}
+	}
+	var groups []AccountGroup
+	for _, prov := range provOrder {
+		groups = append(groups, AccountGroup{
+			Provider: prov,
+			Accounts: provMap[prov],
+		})
+	}
+	return groups
+}
+
+func accountsJSON(accounts []string) string {
+	groups := groupAccountsByProvider(accounts)
+	m := make(map[string][]string)
+	for _, grp := range groups {
+		m[grp.Provider] = grp.Accounts
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func comboCardClass(enabled bool) string {
+	if enabled {
+		return "flex flex-col justify-between border-border bg-card shadow-xs"
+	}
+	return "flex flex-col justify-between border-border bg-card shadow-xs opacity-60"
+}
+
+func comboIconBoxClass(enabled bool) string {
+	if enabled {
+		return "p-1.5 bg-primary/10 text-primary rounded-md shrink-0"
+	}
+	return "p-1.5 bg-muted text-muted-foreground rounded-md shrink-0"
+}
+
+func visibleMembers(members []string) []string {
+	if len(members) <= 3 {
+		return members
+	}
+	return members[:3]
+}
+
+func stripAccountPin(member string) string {
+	parts := strings.SplitN(member, ":", 2)
+	if len(parts) != 2 {
+		return member
+	}
+	provSpec := parts[0]
+	model := parts[1]
+	if idx := strings.Index(provSpec, "@"); idx != -1 {
+		provSpec = provSpec[:idx]
+	}
+	return provSpec + ":" + model
+}
+
+func hiddenMembersTitle(hidden []string) string {
+	return strings.Join(hidden, ", ")
+}
+
+

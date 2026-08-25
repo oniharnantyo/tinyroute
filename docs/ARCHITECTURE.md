@@ -74,8 +74,8 @@ type Router interface {
     Resolve(surface string, model string) (ResolvedRoute, error)
 }
 ```
-- **Purpose**: Maps client requests to provider chains
-- **Strategy**: Pattern-based matching with glob support
+- **Purpose**: Resolves client model requests into provider/account/model hops
+- **Strategy**: Two-path resolution: named combo or `provider[@account]:model` prefix
 
 **HealthStore Interface**
 ```go
@@ -203,17 +203,10 @@ Handles request routing and health tracking.
 
 #### Router Implementation
 
-**Pattern-Based Matching**
-```go
-type RouteEntry struct {
-    From  string     // surface dialect name
-    Match string     // glob pattern against model name
-    Chain []core.Hop // parsed hops
-}
-```
-- **Strategy**: Glob pattern matching for flexible routing
-- **Example**: `claude-*` matches all Claude model variants
-- **Passthrough**: `$model` token preserves client's requested model
+**Two-Path Resolution**
+- **Combo Resolution**: A model identifier matching a configured `Combo` resolves to its panel of member hops (ordered fallback, pool, or fused).
+- **Prefix Resolution**: An identifier in `provider[@account]:model` or `provider:model` format resolves directly to that provider/account.
+- **Unprefixed Rejection**: Unprefixed non-combo models fail with an actionable error directing clients to use a prefix or define a combo.
 
 **Health Tracking**
 ```go
@@ -230,10 +223,10 @@ type HealthStore struct {
 
 #### Tiered Budget Fallback & Quota Gates
 
-Tiered fallback is implemented seamlessly using multi-hop `Route.Chain` configurations paired with quota-gated accounts:
+Tiered fallback is implemented seamlessly using multi-member `Combo` configurations paired with quota-gated accounts:
 - **Subscription Tier**: High-performance or primary accounts with token/request limits (`Account.Quota`).
 - **Cheap / Secondary Tier**: Cost-effective fallback account or provider once subscription quota is exhausted.
-- **Free Tier**: Rate-limited or free tier account as the final safety net in the chain.
+- **Free Tier**: Rate-limited or free tier account as the final safety net in the combo panel.
 
 Example configuration in `config.yaml`:
 ```yaml
@@ -253,12 +246,16 @@ providers:
     - name: pay_as_you_go
       type: static
       api_key: ${BACKUP_KEY}
-routes:
-- from: openai
-  match: '*'
-  chain:
-  - openai@subscription:$model
-  - openai@pay_as_you_go:$model
+  deepseek:
+    dialect: openai
+    base_url: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_KEY}
+
+combos:
+- name: smart-fallback
+  members:
+  - openai@subscription:gpt-4o
+  - openai@pay_as_you_go:gpt-4o
   - deepseek:deepseek-chat
 ```
 When `openai@subscription` exhausts its rolling 24-hour quota, the proxy automatically skips it pre-request and descends to `openai@pay_as_you_go`, and finally to `deepseek:deepseek-chat` if needed.

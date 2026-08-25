@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/oniharnantyo/tinyroute/internal/credential"
 )
@@ -47,12 +48,38 @@ type presetsFile struct {
 	Presets []Preset `json:"presets"`
 }
 
+var (
+	customPresets []Preset
+	customMu      sync.RWMutex
+)
+
+// Register dynamically registers or overrides a Preset.
+func Register(p Preset) {
+	customMu.Lock()
+	defer customMu.Unlock()
+	for i, cp := range customPresets {
+		if cp.Name == p.Name {
+			customPresets[i] = p
+			return
+		}
+	}
+	customPresets = append(customPresets, p)
+}
+
 func All() []Preset {
 	var pf presetsFile
 	if err := json.Unmarshal(presetsData, &pf); err != nil {
 		panic("preset: embedded presets.json is invalid: " + err.Error())
 	}
-	return pf.Presets
+	customMu.RLock()
+	defer customMu.RUnlock()
+	if len(customPresets) == 0 {
+		return pf.Presets
+	}
+	res := make([]Preset, len(pf.Presets)+len(customPresets))
+	copy(res, pf.Presets)
+	copy(res[len(pf.Presets):], customPresets)
+	return res
 }
 
 func normalizeName(s string) string {

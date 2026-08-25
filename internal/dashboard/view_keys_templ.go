@@ -41,8 +41,6 @@ type KeyItem struct {
 
 type KeysPageData struct {
 	Keys       []KeyItem
-	Error      string
-	Flash      string
 	ListenAddr string
 }
 
@@ -565,7 +563,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var25 string
 									templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(k.Name)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 107, Col: 18}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 105, Col: 18}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 									if templ_7745c5c3_Err != nil {
@@ -596,7 +594,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var27 string
 									templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(k.ID)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 110, Col: 16}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 108, Col: 16}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 									if templ_7745c5c3_Err != nil {
@@ -631,7 +629,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var29 string
 									templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue("masked-" + k.ID)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 114, Col: 38}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 112, Col: 38}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 									if templ_7745c5c3_Err != nil {
@@ -644,7 +642,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var30 string
 									templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(k.Masked)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 114, Col: 81}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 112, Col: 81}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 									if templ_7745c5c3_Err != nil {
@@ -657,7 +655,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var31 string
 									templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue("revealed-" + k.ID)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 115, Col: 40}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 113, Col: 40}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 									if templ_7745c5c3_Err != nil {
@@ -670,7 +668,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var32 string
 									templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(k.Secret)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 115, Col: 137}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 113, Col: 137}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 									if templ_7745c5c3_Err != nil {
@@ -688,7 +686,7 @@ func KeysPage(data KeysPageData) templ.Component {
 										var templ_7745c5c3_Var33 string
 										templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(k.ID)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 120, Col: 31}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 118, Col: 31}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 										if templ_7745c5c3_Err != nil {
@@ -701,7 +699,7 @@ func KeysPage(data KeysPageData) templ.Component {
 										var templ_7745c5c3_Var34 string
 										templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue("eye-icon-" + k.ID)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 124, Col: 42}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 122, Col: 42}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 										if templ_7745c5c3_Err != nil {
@@ -722,7 +720,7 @@ func KeysPage(data KeysPageData) templ.Component {
 										var templ_7745c5c3_Var35 string
 										templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue("eye-off-icon-" + k.ID)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 127, Col: 46}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 125, Col: 46}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 										if templ_7745c5c3_Err != nil {
@@ -743,7 +741,7 @@ func KeysPage(data KeysPageData) templ.Component {
 										var templ_7745c5c3_Var36 string
 										templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(k.Secret)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 134, Col: 35}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 132, Col: 35}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 										if templ_7745c5c3_Err != nil {
@@ -799,7 +797,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var38 string
 									templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(k.RateSpec)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 149, Col: 22}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 147, Col: 22}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 									if templ_7745c5c3_Err != nil {
@@ -830,7 +828,7 @@ func KeysPage(data KeysPageData) templ.Component {
 									var templ_7745c5c3_Var40 string
 									templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(k.Expires)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 152, Col: 21}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 150, Col: 21}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 									if templ_7745c5c3_Err != nil {
@@ -1527,7 +1525,7 @@ func KeysPage(data KeysPageData) templ.Component {
 							var templ_7745c5c3_Var68 string
 							templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(k.ID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 329, Col: 42}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 327, Col: 42}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 							if templ_7745c5c3_Err != nil {
@@ -1556,7 +1554,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var69 templ.SafeURL
 					templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/dashboard/keys/" + k.ID + "/update"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 332, Col: 86}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 330, Col: 86}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 					if templ_7745c5c3_Err != nil {
@@ -1630,7 +1628,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var72 string
 					templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.ResolveAttributeValue("edit-expiry-choice-" + k.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 350, Col: 41}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 348, Col: 41}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var72)
 					if templ_7745c5c3_Err != nil {
@@ -1643,7 +1641,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var73 string
 					templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(k.Expires)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 354, Col: 106}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 352, Col: 106}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 					if templ_7745c5c3_Err != nil {
@@ -1656,7 +1654,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var74 string
 					templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.ResolveAttributeValue("edit-custom-expiry-wrap-" + k.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 360, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 358, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var74)
 					if templ_7745c5c3_Err != nil {
@@ -1705,7 +1703,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var76 string
 					templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.ResolveAttributeValue("edit-enable-rate-" + k.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 379, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 377, Col: 40}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var76)
 					if templ_7745c5c3_Err != nil {
@@ -1728,7 +1726,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var77 string
 					templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.ResolveAttributeValue("edit-enable-rate-" + k.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 385, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 383, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var77)
 					if templ_7745c5c3_Err != nil {
@@ -1856,7 +1854,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var82 string
 					templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.ResolveAttributeValue("edit-rate-interval-unit-" + k.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 429, Col: 49}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 427, Col: 49}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 					if templ_7745c5c3_Err != nil {
@@ -2101,7 +2099,7 @@ func KeysPage(data KeysPageData) templ.Component {
 							var templ_7745c5c3_Var92 string
 							templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(k.Name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 467, Col: 83}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 465, Col: 83}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 							if templ_7745c5c3_Err != nil {
@@ -2114,7 +2112,7 @@ func KeysPage(data KeysPageData) templ.Component {
 							var templ_7745c5c3_Var93 string
 							templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(k.ID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 467, Col: 102}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 465, Col: 102}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 							if templ_7745c5c3_Err != nil {
@@ -2143,7 +2141,7 @@ func KeysPage(data KeysPageData) templ.Component {
 					var templ_7745c5c3_Var94 templ.SafeURL
 					templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/dashboard/keys/" + k.ID + "/revoke"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 474, Col: 86}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/view_keys.templ`, Line: 472, Col: 86}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 					if templ_7745c5c3_Err != nil {

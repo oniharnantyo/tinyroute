@@ -29,7 +29,7 @@ func TestNamespacedSurfacesAndLegacy404(t *testing.T) {
 			Models:  []string{"claude-3-5-sonnet"},
 		},
 	}
-	r := route.New(nil, providers)
+	r := route.New(providers)
 
 	mux := http.NewServeMux()
 	for _, name := range dialect.Names() {

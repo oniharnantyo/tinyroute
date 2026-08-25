@@ -128,7 +128,6 @@ func RunInitWizard() error {
 	configPath := filepath.Join(dir, "config.yaml")
 	topo := config.Topology{
 		Providers: make(map[string]config.Provider),
-		Routes:    []config.Route{},
 	}
 	for _, p := range state.SelectedProviders {
 		apiKey := ""

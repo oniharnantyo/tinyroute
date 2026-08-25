@@ -163,6 +163,52 @@ func TestAccountRemove(t *testing.T) {
 	}
 }
 
+func TestAccountRemove_ComboDowngrades(t *testing.T) {
+	setupAccountTestHome(t)
+
+	svc, _ := config.LoadService()
+	data, _ := os.ReadFile(svc.ConfigPath)
+	topo, _ := config.ParseTopology(data)
+
+	// Add test combos
+	topo.Combos = []config.Combo{
+		{
+			Name:    "c1",
+			Members: []string{"openai@secondary:gpt-5.2", "anthropic:claude-3-5-sonnet"},
+		},
+		{
+			Name:    "c2-dedup",
+			Members: []string{"openai:gpt-5.2", "openai@secondary:gpt-5.2", "anthropic:claude-3-5-sonnet"},
+		},
+		{
+			Name:    "c3-dedup-to-single",
+			Members: []string{"openai@secondary:gpt-5.2", "openai:gpt-5.2"},
+		},
+	}
+	_ = config.WriteTopology(svc.ConfigPath, topo)
+
+	err := cmdAccountRemove([]string{"openai", "secondary"}, false)
+	if err != nil {
+		t.Fatalf("account remove failed: %v", err)
+	}
+
+	data, _ = os.ReadFile(svc.ConfigPath)
+	resTopo, _ := config.ParseTopology(data)
+
+	if len(resTopo.Combos) != 3 {
+		t.Fatalf("expected all 3 combos to survive downgrade, got %d", len(resTopo.Combos))
+	}
+	if resTopo.Combos[0].Name != "c1" || resTopo.Combos[0].Members[0] != "openai:gpt-5.2" {
+		t.Errorf("c1 expected downgraded member openai:gpt-5.2, got: %v", resTopo.Combos[0].Members)
+	}
+	if resTopo.Combos[1].Name != "c2-dedup" || len(resTopo.Combos[1].Members) != 2 {
+		t.Errorf("c2 expected deduped members, got: %v", resTopo.Combos[1].Members)
+	}
+	if resTopo.Combos[2].Name != "c3-dedup-to-single" || len(resTopo.Combos[2].Members) != 1 || resTopo.Combos[2].Members[0] != "openai:gpt-5.2" {
+		t.Errorf("c3 expected single deduped member openai:gpt-5.2, got: %v", resTopo.Combos[2].Members)
+	}
+}
+
 func TestAccountSelectStrategy(t *testing.T) {
 	setupAccountTestHome(t)
 
@@ -236,5 +282,33 @@ func TestAuthSetAccountFlag(t *testing.T) {
 	}
 	if !found {
 		t.Error("cmdAuthSet with --account did not set provider account credential")
+	}
+}
+
+func TestAccountAddOAuthFailureLeavesTopologyUnchanged(t *testing.T) {
+	setupAccountTestHome(t)
+
+	// Attempt to add oauth_refresh account with a non-interactive runner failure
+	cmd := cmdProvidersAccount()
+	args := []string{"account", "add", "anthropic", "failed-acc", "--type=oauth_refresh", "--no-interactive"}
+
+	err := cmd.Run(t.Context(), args)
+	if err == nil {
+		t.Fatal("expected error running oauth account add without interactive credentials")
+	}
+
+	// Verify that topology was NOT modified with "failed-acc"
+	svc, err := config.LoadService()
+	if err != nil {
+		t.Fatalf("load service: %v", err)
+	}
+	data, _ := os.ReadFile(svc.ConfigPath)
+	topo, _ := config.ParseRawTopology(data)
+
+	p := topo.Providers["anthropic"]
+	for _, acc := range p.Accounts {
+		if acc.Name == "failed-acc" {
+			t.Errorf("expected failed-acc not to be written to topology after failed flow, but found it")
+		}
 	}
 }

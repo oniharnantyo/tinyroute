@@ -39,12 +39,15 @@ type Combo struct {
 	Members      []string `yaml:"members"`                // ordered list of "provider[(@account)]:model" or combo names
 	Mode         string   `yaml:"mode,omitempty"`         // "ordered" (default), "pool", "fused"
 	Capabilities []string `yaml:"capabilities,omitempty"` // e.g. ["vision", "pdf", "audio", "video"]
+	Disabled     bool     `yaml:"disabled,omitempty"`
 }
+
+// IsEnabled reports whether the combo participates in routing.
+func (c Combo) IsEnabled() bool { return !c.Disabled }
 
 // Topology represents the runtime configuration loaded from config.yaml.
 type Topology struct {
 	Providers map[string]Provider `yaml:"providers"`
-	Routes    []Route             `yaml:"routes"`
 	Combos    []Combo             `yaml:"combos,omitempty"`
 }
 
@@ -74,13 +77,6 @@ type Provider struct {
 	Cooldown429 string             `yaml:"cooldown_429,omitempty"`
 	Cooldown5xx string             `yaml:"cooldown_5xx,omitempty"`
 	Models      []string           `yaml:"models,omitempty"`
-}
-
-// Route maps an inbound surface + model glob to an ordered chain of hops.
-type Route struct {
-	From  string   `yaml:"from"`  // inbound dialect name (e.g. "anthropic", "openai")
-	Match string   `yaml:"match"` // glob pattern against model name
-	Chain []string `yaml:"chain"` // ordered hops as "provider:model" or "provider:$model"
 }
 
 var interpolateRe = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -171,6 +167,26 @@ func interpolateVars(s string) (string, error) {
 		return ""
 	})
 	return result, nil
+}
+
+// UpsertAccount returns a copy of Provider with acc appended or replaced by name.
+func (p Provider) UpsertAccount(acc Account) Provider {
+	cp := p
+	newAccounts := make([]Account, 0, len(p.Accounts)+1)
+	replaced := false
+	for _, a := range p.Accounts {
+		if a.Name == acc.Name {
+			newAccounts = append(newAccounts, acc)
+			replaced = true
+		} else {
+			newAccounts = append(newAccounts, a)
+		}
+	}
+	if !replaced {
+		newAccounts = append(newAccounts, acc)
+	}
+	cp.Accounts = newAccounts
+	return cp
 }
 
 // BuildCredential builds a credential.Credential strategy for the default account of Provider.
@@ -364,15 +380,15 @@ func ValidateTopology(t Topology, registeredDialects []string) []error {
 		}
 	}
 
-	// Check routes
-	for i, r := range t.Routes {
-		if !dialectSet[r.From] {
-			errs = append(errs, fmt.Errorf("route[%d]: unknown surface dialect %q", i, r.From))
-		}
-		for _, hop := range r.Chain {
-			parts := strings.SplitN(hop, ":", 2)
+	// Check combo members
+	for _, cb := range t.Combos {
+		for _, m := range cb.Members {
+			if comboSet[m] {
+				continue
+			}
+			parts := strings.SplitN(m, ":", 2)
 			if len(parts) != 2 {
-				errs = append(errs, fmt.Errorf("route[%d]: malformed chain hop %q (expected provider:model or combo)", i, hop))
+				errs = append(errs, fmt.Errorf("combo %q: malformed member %q (expected provider:model or combo)", cb.Name, m))
 				continue
 			}
 			provSpec := parts[0]
@@ -383,12 +399,12 @@ func ValidateTopology(t Topology, registeredDialects []string) []error {
 				provName = sub[0]
 				accName = sub[1]
 			}
-			if _, isCombo := comboSet[provSpec]; isCombo {
+			if comboSet[provSpec] {
 				continue
 			}
 			prov, ok := t.Providers[provName]
 			if !ok {
-				errs = append(errs, fmt.Errorf("route[%d]: chain references undeclared provider or combo %q", i, provSpec))
+				errs = append(errs, fmt.Errorf("combo %q: references undeclared provider %q", cb.Name, provSpec))
 				continue
 			}
 			if accName != "" && accName != "default" {
@@ -400,18 +416,27 @@ func ValidateTopology(t Topology, registeredDialects []string) []error {
 					}
 				}
 				if !foundAcc {
-					errs = append(errs, fmt.Errorf("route[%d]: chain references unknown account %q for provider %q", i, accName, provName))
+					errs = append(errs, fmt.Errorf("combo %q: references unknown account %q for provider %q", cb.Name, accName, provName))
 				}
-			}
-			// Check surface/chain dialect mismatch
-			if prov.Dialect != r.From {
-				errs = append(errs, fmt.Errorf("route[%d]: surface %q requires translation to provider %q (dialect %q) which is unavailable",
-					i, r.From, provName, prov.Dialect))
 			}
 		}
 	}
 
 	return errs
+}
+
+// CheckDeprecated scans raw config bytes for keys whose feature has been
+// removed and returns human-readable deprecation warnings.
+func CheckDeprecated(data []byte) []string {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	var warnings []string
+	if _, ok := raw["routes"]; ok {
+		warnings = append(warnings, "warning: 'routes:' configuration is deprecated and ignored; use combos instead")
+	}
+	return warnings
 }
 
 // WriteTopology atomically writes a topology to disk as YAML.

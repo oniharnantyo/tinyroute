@@ -1,8 +1,10 @@
 package dashboard
 
 import (
-
 	"fmt"
+	"strings"
+
+	"github.com/oniharnantyo/tinyroute/internal/clients"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
@@ -14,7 +16,7 @@ import (
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/radio"
 	selectcomp "github.com/oniharnantyo/tinyroute/internal/dashboard/components/select"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/sheet"
-	"strings"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/tabs"
 )
 
 templ viewClientDetail(data ClientDetailPageData) {
@@ -205,8 +207,6 @@ templ viewClientDetail(data ClientDetailPageData) {
 
 							for _, slot := range data.ModelSlots {
 								{{ slotVal := SlotValue(data.SlotValues, slot) }}
-								{{ slotDialogID := fmt.Sprintf("dialog-slot-%s", slot.ID) }}
-								{{ baseVal := strings.TrimSuffix(slotVal, contextWindowSuffix) }}
 								{{ has1M := strings.HasSuffix(slotVal, contextWindowSuffix) }}
 								<div class="space-y-2">
 									<div class="flex items-center justify-between gap-2">
@@ -237,86 +237,7 @@ templ viewClientDetail(data ClientDetailPageData) {
 										value={ slotVal }
 									/>
 
-									<!-- Picker Dialog -->
-									@dialog.Dialog(dialog.Props{ID: slotDialogID}) {
-										@dialog.Trigger(dialog.TriggerProps{For: slotDialogID}) {
-											<button
-												type="button"
-												id={ fmt.Sprintf("btn-slot-%s", slot.ID) }
-												class="w-full flex items-center justify-between gap-2 bg-card border border-input rounded-md px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer"
-											>
-												<span id={ fmt.Sprintf("label-slot-%s", slot.ID) } class="font-mono truncate">
-													if slotVal != "" {
-														{ slotVal }
-													} else {
-														{ slotPlaceholder(slot) }
-													}
-												</span>
-												@icon.ChevronRight(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
-											</button>
-										}
-										@dialog.Content(dialog.ContentProps{Class: "w-full max-w-lg p-0 overflow-hidden"}) {
-											@dialog.Header(dialog.HeaderProps{Class: "p-4 border-b border-border"}) {
-												@dialog.Title() {
-													{ slot.Name }
-												}
-												@dialog.Description() {
-													Select a model from connected providers
-												}
-											}
-
-											<!-- Search Bar inside picker -->
-											<div class="p-3 border-b border-border bg-muted/20">
-												@inputgroup.InputGroup() {
-													@inputgroup.Addon() {
-														@icon.Search()
-													}
-													@inputgroup.Input(inputgroup.InputProps{
-														Type:        "search",
-														Placeholder: "Search models or providers…",
-														Attributes:  templ.Attributes{"data-filter-input": "picker-" + slot.ID},
-													})
-												}
-											</div>
-
-											<div class="p-3 max-h-[60vh] overflow-y-auto scroll-fade space-y-3">
-												if !slot.Required {
-													<button
-														type="button"
-														data-filter-item={ "picker-" + slot.ID }
-														data-filter-text="none default"
-														data-slot-id={ slot.ID }
-														data-model-val=""
-														data-dialog-id={ slotDialogID }
-														class="model-picker-btn w-full flex items-center justify-between px-3 py-2.5 rounded-md border border-border bg-card text-sm font-mono text-muted-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
-													>
-														<span>(None / Default)</span>
-													</button>
-												}
-												for _, group := range data.ProviderModelGroups {
-													<div class="space-y-1.5">
-														<div class="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ group.Provider }</div>
-														for _, m := range group.Models {
-															<button
-																type="button"
-																data-filter-item={ "picker-" + slot.ID }
-																data-filter-text={ fmt.Sprintf("%s %s %s", m.Label, m.Value, group.Provider) }
-																data-slot-id={ slot.ID }
-																data-model-val={ m.Value }
-																data-dialog-id={ slotDialogID }
-																class="model-picker-btn w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-border bg-card text-sm font-mono text-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
-															>
-																<span class="truncate">{ m.Label }</span>
-																if baseVal == m.Value {
-																	@icon.Check(icon.Props{Class: "size-4 shrink-0 text-primary"})
-																}
-															</button>
-														}
-													</div>
-												}
-											</div>
-										}
-									}
+									@slotPicker(slot, slotVal, data.ProviderModelGroups, data.ComboOptions)
 								</div>
 							}
 						</div>
@@ -663,3 +584,168 @@ templ clientDetailScripts() {
 		});
 	</script>
 }
+
+templ slotPicker(slot clients.ModelSlot, slotVal string, providerGroups []ProviderModelGroup, comboOptions []ModelOption) {
+	{{ slotDialogID := fmt.Sprintf("dialog-slot-%s", slot.ID) }}
+	{{ baseVal := strings.TrimSuffix(slotVal, contextWindowSuffix) }}
+	{{ defaultTab := "models" }}
+	if strings.HasPrefix(baseVal, "combo:") {
+		{{ defaultTab = "combos" }}
+	}
+	@dialog.Dialog(dialog.Props{ID: slotDialogID}) {
+		@dialog.Trigger(dialog.TriggerProps{For: slotDialogID}) {
+			<button
+				type="button"
+				id={ fmt.Sprintf("btn-slot-%s", slot.ID) }
+				class="w-full flex items-center justify-between gap-2 bg-card border border-input rounded-md px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer"
+			>
+				<span id={ fmt.Sprintf("label-slot-%s", slot.ID) } class="font-mono truncate">
+					if slotVal != "" {
+						{ slotVal }
+					} else {
+						{ slotPlaceholder(slot) }
+					}
+				</span>
+				@icon.ChevronRight(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
+			</button>
+		}
+		@dialog.Content(dialog.ContentProps{Class: "w-full max-w-lg p-0 overflow-hidden"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "p-4 border-b border-border"}) {
+				@dialog.Title() {
+					{ slot.Name }
+				}
+				@dialog.Description() {
+					Select a model or combo
+				}
+			}
+			if len(comboOptions) > 0 {
+				@tabs.Tabs(tabs.Props{DefaultValue: defaultTab, Class: "w-full flex-col"}) {
+					<div class="px-3 pt-3 border-b border-border bg-muted/10">
+						@tabs.List(tabs.ListProps{Class: "w-full grid grid-cols-2"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "models", Class: "flex-1"}) {
+								Models
+							}
+							@tabs.Trigger(tabs.TriggerProps{Value: "combos", Class: "flex-1"}) {
+								Combos
+							}
+						}
+					</div>
+					@tabs.Content(tabs.ContentProps{Value: "models"}) {
+						@slotPickerModelsPane(slot, slotDialogID, baseVal, providerGroups)
+					}
+					@tabs.Content(tabs.ContentProps{Value: "combos"}) {
+						@slotPickerCombosPane(slot, slotDialogID, baseVal, comboOptions)
+					}
+				}
+			} else {
+				@slotPickerModelsPane(slot, slotDialogID, baseVal, providerGroups)
+			}
+		}
+	}
+}
+
+templ slotPickerModelsPane(slot clients.ModelSlot, slotDialogID, baseVal string, providerGroups []ProviderModelGroup) {
+	<!-- Search Bar inside models picker -->
+	<div class="p-3 border-b border-border bg-muted/20">
+		@inputgroup.InputGroup() {
+			@inputgroup.Addon() {
+				@icon.Search()
+			}
+			@inputgroup.Input(inputgroup.InputProps{
+				Type:        "search",
+				Placeholder: "Search models or providers…",
+				Attributes:  templ.Attributes{"data-filter-input": "picker-" + slot.ID + "-models"},
+			})
+		}
+	</div>
+
+	<div class="p-3 max-h-[60vh] overflow-y-auto scroll-fade space-y-3">
+		if !slot.Required {
+			<button
+				type="button"
+				data-filter-item={ "picker-" + slot.ID + "-models" }
+				data-filter-text="none default"
+				data-slot-id={ slot.ID }
+				data-model-val=""
+				data-dialog-id={ slotDialogID }
+				class="model-picker-btn w-full flex items-center justify-between px-3 py-2.5 rounded-md border border-border bg-card text-sm font-mono text-muted-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+			>
+				<span>(None / Default)</span>
+			</button>
+		}
+		for _, group := range providerGroups {
+			<div
+				class="space-y-1.5"
+				data-filter-item={ "picker-" + slot.ID + "-models" }
+				data-filter-text={ groupSearchStrings(group) }
+			>
+				<div class="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ group.Provider }</div>
+				for _, m := range group.Models {
+					<button
+						type="button"
+						data-filter-item={ "picker-" + slot.ID + "-models" }
+						data-filter-text={ fmt.Sprintf("%s %s %s", m.Label, m.Value, group.Provider) }
+						data-slot-id={ slot.ID }
+						data-model-val={ m.Value }
+						data-dialog-id={ slotDialogID }
+						class="model-picker-btn w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-border bg-card text-sm font-mono text-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+					>
+						<span class="truncate">{ m.Label }</span>
+						if baseVal == m.Value {
+							@icon.Check(icon.Props{Class: "size-4 shrink-0 text-primary"})
+						}
+					</button>
+				}
+			</div>
+		}
+	</div>
+}
+
+templ slotPickerCombosPane(slot clients.ModelSlot, slotDialogID, baseVal string, comboOptions []ModelOption) {
+	<!-- Search Bar inside combos picker -->
+	<div class="p-3 border-b border-border bg-muted/20">
+		@inputgroup.InputGroup() {
+			@inputgroup.Addon() {
+				@icon.Search()
+			}
+			@inputgroup.Input(inputgroup.InputProps{
+				Type:        "search",
+				Placeholder: "Search combos…",
+				Attributes:  templ.Attributes{"data-filter-input": "picker-" + slot.ID + "-combos"},
+			})
+		}
+	</div>
+
+	<div class="p-3 max-h-[60vh] overflow-y-auto scroll-fade space-y-1.5">
+		if !slot.Required {
+			<button
+				type="button"
+				data-filter-item={ "picker-" + slot.ID + "-combos" }
+				data-filter-text="none default"
+				data-slot-id={ slot.ID }
+				data-model-val=""
+				data-dialog-id={ slotDialogID }
+				class="model-picker-btn w-full flex items-center justify-between px-3 py-2.5 rounded-md border border-border bg-card text-sm font-mono text-muted-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+			>
+				<span>(None / Default)</span>
+			</button>
+		}
+		for _, c := range comboOptions {
+			<button
+				type="button"
+				data-filter-item={ "picker-" + slot.ID + "-combos" }
+				data-filter-text={ fmt.Sprintf("%s %s", c.Label, c.Value) }
+				data-slot-id={ slot.ID }
+				data-model-val={ c.Value }
+				data-dialog-id={ slotDialogID }
+				class="model-picker-btn w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-border bg-card text-sm font-mono text-foreground hover:border-primary/50 hover:bg-accent transition-colors cursor-pointer"
+			>
+				<span class="truncate">{ c.Label }</span>
+				if baseVal == c.Value {
+					@icon.Check(icon.Props{Class: "size-4 shrink-0 text-primary"})
+				}
+			</button>
+		}
+	</div>
+}
+

@@ -2,12 +2,19 @@ package dashboard
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/badge"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/breadcrumb"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/button"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/card"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dialog"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/dropdown"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/icon"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/input"
 	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/inputgroup"
+	"github.com/oniharnantyo/tinyroute/internal/dashboard/components/label"
 )
 
 type CatalogModelItem struct {
@@ -35,10 +42,19 @@ type ProviderDetailPageData struct {
 	UserCode          string
 	VerificationURI   string
 	DeviceID          string
+	Account           string
+}
+
+func sanitizeAccountID(acc string) string {
+	r := strings.ReplaceAll(strings.ReplaceAll(acc, "@", "-at-"), ".", "-")
+	return strings.ReplaceAll(r, "_", "-")
 }
 
 templ ProviderDetailPage(data ProviderDetailPageData) {
 	<div class="space-y-6">
+		<!-- Flash/error feedback renders as a toast via the layout Toaster's
+		     checkUrlFlash(); no static banner here. -->
+
 		<!-- Header Breadcrumb & Actions -->
 		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
 			<div class="space-y-2">
@@ -81,6 +97,7 @@ templ ProviderDetailPage(data ProviderDetailPageData) {
 				data-device-code={ data.DeviceCode }
 				data-device-id={ data.DeviceID }
 				data-provider={ data.Name }
+				data-account={ data.Account }
 				class="bg-card border border-primary/40 rounded-xl p-6 shadow-xl space-y-4"
 			>
 				<div class="flex items-center justify-between border-b border-border pb-3">
@@ -131,40 +148,96 @@ templ ProviderDetailPage(data ProviderDetailPageData) {
 					@icon.Lock(icon.Props{Class: "size-4 text-primary"})
 					Connections & Credentials
 				}
-				<span class="text-xs text-muted-foreground font-mono">{ fmt.Sprintf("%d active connections", len(data.Connections)) }</span>
+				<div class="flex items-center gap-2">
+					<span class="text-xs text-muted-foreground font-mono mr-2">{ fmt.Sprintf("%d active connections", len(data.Connections)) }</span>
+					if data.OAuthCapable {
+						@dialog.Trigger(dialog.TriggerProps{For: "dialog-connect-oauth"}) {
+							@button.Button(button.Props{
+								Size:  button.SizeSm,
+								Class: "gap-1.5 shadow-sm cursor-pointer",
+							}) {
+								@icon.Key(icon.Props{Class: "size-3.5"})
+								<span>Connect OAuth</span>
+							}
+						}
+					}
+					@dialog.Trigger(dialog.TriggerProps{For: "dialog-add-api-key"}) {
+						@button.Button(button.Props{
+							Variant: button.VariantOutline,
+							Size:    button.SizeSm,
+							Class:   "gap-1.5 cursor-pointer",
+						}) {
+							@icon.Plus(icon.Props{Class: "size-3.5"})
+							<span>Add Key</span>
+						}
+					}
+				</div>
 			}
 			@card.Content(card.ContentProps{Class: "p-6 space-y-4"}) {
 				if len(data.Connections) > 0 {
 					<div class="space-y-2">
 						for _, conn := range data.Connections {
 							<div class="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-muted/40 border border-border rounded-lg text-xs font-mono gap-2">
-								<div class="space-y-0.5">
-									<span class="font-bold text-foreground">{ conn.Account }</span>
-									<div class="text-muted-foreground text-[11px]">Token Digest: { conn.RefreshToken }</div>
+								<div class="space-y-1">
+									<div class="flex items-center gap-2">
+										<span class="font-bold text-foreground">{ conn.Account }</span>
+										if conn.Type == "oauth" {
+											@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[10px] px-1.5 py-0"}) {
+												OAuth
+											}
+										} else {
+											@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-[10px] px-1.5 py-0"}) {
+												Static Key
+											}
+										}
+									</div>
+									<div class="text-muted-foreground text-[11px]">Digest: { conn.RefreshToken }</div>
 								</div>
 								<div class="flex items-center gap-3">
-									<span class="text-muted-foreground text-[11px]">Expires: { conn.ExpiresAt }</span>
-									<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove this OAuth connection?');">
-										<input type="hidden" name="name" value={ data.Name }/>
-										<input type="hidden" name="account" value={ conn.Account }/>
-										<input type="hidden" name="type" value="oauth"/>
-										<button type="submit" class="p-1.5 text-muted-foreground hover:text-destructive transition-colors cursor-pointer" title="Remove OAuth Connection">
-											@icon.Trash(icon.Props{Class: "size-3.5"})
-										</button>
-									</form>
+									if conn.Type == "oauth" {
+										<span class="text-muted-foreground text-[11px]">Expires: { conn.ExpiresAt }</span>
+									}
+									@dropdown.Dropdown() {
+										@dropdown.Trigger() {
+											@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 w-7 p-0 text-muted-foreground hover:text-foreground cursor-pointer"}) {
+												@icon.Ellipsis(icon.Props{Class: "size-4"})
+											}
+										}
+										@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-40 text-xs"}) {
+											if conn.Type == "oauth" {
+												@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/dashboard/providers/%s/oauth/start?account=%s", data.Name, url.QueryEscape(conn.Account)), Class: "gap-2"}) {
+													@icon.RefreshCw(icon.Props{Class: "size-3.5 text-muted-foreground"})
+													<span>Reconnect</span>
+												}
+											}
+											@dialog.Trigger(dialog.TriggerProps{For: "dialog-rename-" + sanitizeAccountID(conn.Account)}) {
+												@dropdown.Item(dropdown.ItemProps{Class: "gap-2 cursor-pointer"}) {
+													@icon.Pencil(icon.Props{Class: "size-3.5 text-muted-foreground"})
+													<span>Rename</span>
+												}
+											}
+											@dropdown.Separator()
+											@dialog.Trigger(dialog.TriggerProps{For: "dialog-disconnect-" + sanitizeAccountID(conn.Account)}) {
+												@dropdown.Item(dropdown.ItemProps{Class: "gap-2 cursor-pointer text-destructive hover:bg-destructive/10"}) {
+													@icon.Trash2(icon.Props{Class: "size-3.5"})
+													<span>Disconnect</span>
+												}
+											}
+										}
+									}
 								</div>
 							</div>
 						}
 					</div>
 				} else {
-					<p class="text-xs text-muted-foreground italic">No OAuth or stored credential records. You can save a static API Key below.</p>
+					<p class="text-xs text-muted-foreground italic">No OAuth or stored credential records configured for this provider.</p>
 				}
 
-				if data.APIKey != "" {
+				if data.APIKey != "" && len(data.Connections) == 0 {
 					<div class="p-3.5 bg-muted/40 border border-border rounded-lg text-xs font-mono flex items-center justify-between">
 						<div class="space-y-0.5">
-							<span class="text-foreground font-medium">Static API Key</span>
-							<div class="text-emerald-400 text-[11px]">Configured</div>
+							<span class="text-foreground font-medium">Legacy Static API Key</span>
+							<div class="text-emerald-400 text-[11px]">Configured (scalar fallback)</div>
 						</div>
 						<form method="POST" action="/dashboard/providers/credential/delete" onsubmit="return confirm('Are you sure you want to remove the API key?');">
 							<input type="hidden" name="name" value={ data.Name }/>
@@ -181,32 +254,174 @@ templ ProviderDetailPage(data ProviderDetailPageData) {
 						</form>
 					</div>
 				}
+			}
+		}
 
-				if data.OAuthCapable {
-					<div class="pt-3 border-t border-border flex items-center justify-between">
-						<div class="space-y-0.5">
-							<span class="text-xs font-medium text-foreground">OAuth Connection</span>
-							<p class="text-[11px] text-muted-foreground">Authenticate with { data.DisplayName } using OAuth in browser</p>
-						</div>
-						@button.Button(button.Props{
-							Href:  fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name),
-							Class: "gap-2 shadow-sm",
-						}) {
-							@icon.Key(icon.Props{Class: "size-4"})
-							<span>Connect with OAuth</span>
+		<!-- DIALOGS -->
+		<!-- Connect OAuth Dialog -->
+		if data.OAuthCapable {
+			@dialog.Dialog(dialog.Props{ID: "dialog-connect-oauth"}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Connect OAuth Account
 						}
-					</div>
+						@dialog.Description() {
+							Authenticate with { data.DisplayName } in browser. You can provide an optional account label.
+						}
+					}
+					<form method="GET" action={ templ.SafeURL(fmt.Sprintf("/dashboard/providers/%s/oauth/start", data.Name)) } class="space-y-4 pt-2">
+						<div class="space-y-1.5">
+							@label.Label(label.Props{For: "connect-oauth-account"}) {
+								Account Label (Optional)
+							}
+							@input.Input(input.Props{
+								ID:          "connect-oauth-account",
+								Name:        "account",
+								Placeholder: "e.g. work, personal, team2",
+							})
+						</div>
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4 flex justify-end gap-2"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-connect-oauth"}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Class: "gap-1.5"}) {
+								@icon.Key(icon.Props{Class: "size-4"})
+								<span>Authorize in Browser</span>
+							}
+						}
+					</form>
 				}
+			}
+		}
 
-				if !data.OAuthCapable {
-					<form method="POST" action="/dashboard/providers/credential" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-3 border-t border-border">
+		<!-- Add API Key Dialog -->
+		@dialog.Dialog(dialog.Props{ID: "dialog-add-api-key"}) {
+			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						Add API Key Account
+					}
+					@dialog.Description() {
+						Add a static API key or secret token for { data.DisplayName }.
+					}
+				}
+				<form method="POST" action="/dashboard/providers/credential" class="space-y-4 pt-2">
+					<input type="hidden" name="name" value={ data.Name }/>
+					<div class="space-y-1.5">
+						@label.Label(label.Props{For: "add-key-secret"}) {
+							API Key / Secret Token
+						}
+						@input.Input(input.Props{
+							ID:          "add-key-secret",
+							Name:        "api_key",
+							Type:        "password",
+							Placeholder: "sk-...",
+							Required:    true,
+							Class:       "font-mono",
+						})
+					</div>
+					<div class="space-y-1.5">
+						@label.Label(label.Props{For: "add-key-account"}) {
+							Account Label (Optional)
+						}
+						@input.Input(input.Props{
+							ID:          "add-key-account",
+							Name:        "account",
+							Placeholder: "e.g. default, backup, prod",
+						})
+					</div>
+					@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4 flex justify-end gap-2"}) {
+						@dialog.Close(dialog.CloseProps{For: "dialog-add-api-key"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+								Cancel
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit, Class: "gap-1.5"}) {
+							@icon.Plus(icon.Props{Class: "size-4"})
+							<span>Save Account Key</span>
+						}
+					}
+				</form>
+			}
+		}
+
+		<!-- Rename Dialogs for each connection -->
+		for _, conn := range data.Connections {
+			@dialog.Dialog(dialog.Props{ID: "dialog-rename-" + sanitizeAccountID(conn.Account)}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Rename Account
+						}
+						@dialog.Description() {
+							Change the identifier for this connection from <span class="font-mono font-semibold">{ conn.Account }</span>.
+						}
+					}
+					<form method="POST" action="/dashboard/providers/account/rename" class="space-y-4 pt-2">
+						<input type="hidden" name="provider" value={ data.Name }/>
+						<input type="hidden" name="old_account" value={ conn.Account }/>
+						<div class="space-y-1.5">
+							@label.Label(label.Props{For: "rename-input-" + sanitizeAccountID(conn.Account)}) {
+								New Account Name
+							}
+							@input.Input(input.Props{
+								ID:          "rename-input-" + sanitizeAccountID(conn.Account),
+								Name:        "new_account",
+								Value:       conn.Account,
+								Placeholder: "e.g. pool-1, backup, prod",
+								Required:    true,
+							})
+						</div>
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4 flex justify-end gap-2"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-rename-" + sanitizeAccountID(conn.Account)}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Class: "gap-1.5"}) {
+								@icon.Check(icon.Props{Class: "size-4"})
+								<span>Save New Name</span>
+							}
+						}
+					</form>
+				}
+			}
+		}
+
+		<!-- Disconnect Confirmation Dialogs for each connection -->
+		for _, conn := range data.Connections {
+			@dialog.Dialog(dialog.Props{ID: "dialog-disconnect-" + sanitizeAccountID(conn.Account)}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Disconnect Connection
+						}
+						@dialog.Description() {
+							Are you sure you want to disconnect account <strong class="text-foreground font-mono">{ conn.Account }</strong> from { data.DisplayName }?
+						}
+					}
+					if conn.AffectedComboCount > 0 {
+						<div class="text-xs text-muted-foreground p-3 rounded-md bg-destructive/10 border border-destructive/20 space-y-1 mt-2 text-left">
+							<p class="font-medium text-destructive">Warning: Combo routing will be affected.</p>
+							<p>{ fmt.Sprintf("%d combo(s) referencing this connection will be adjusted.", conn.AffectedComboCount) }</p>
+						</div>
+					}
+					<form method="POST" action="/dashboard/providers/credential/delete" class="mt-4">
 						<input type="hidden" name="name" value={ data.Name }/>
-						<input type="password" name="api_key" placeholder="Paste API Key / Secret Token (starts with sk-...)" class="flex-1 px-3.5 py-2 bg-transparent border border-input rounded-md text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none font-mono"/>
-						@button.Button(button.Props{
-							Type:  button.TypeSubmit,
-							Class: "shrink-0",
-						}) {
-							Save API Key Secret
+						<input type="hidden" name="account" value={ conn.Account }/>
+						<input type="hidden" name="type" value={ conn.Type }/>
+						@dialog.Footer(dialog.FooterProps{Class: "pt-4 border-t border-border mt-4 flex justify-end gap-2"}) {
+							@dialog.Close(dialog.CloseProps{For: "dialog-disconnect-" + sanitizeAccountID(conn.Account)}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Type: button.TypeButton}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Variant: button.VariantDestructive, Type: button.TypeSubmit}) {
+								Disconnect
+							}
 						}
 					</form>
 				}
@@ -413,6 +628,7 @@ templ providerDetailScripts() {
 			const deviceCode = banner.getAttribute('data-device-code');
 			const deviceID = banner.getAttribute('data-device-id');
 			const provider = banner.getAttribute('data-provider');
+			const account = banner.getAttribute('data-account') || '';
 			const statusEl = document.getElementById('device-auth-status');
 			const restartBtn = document.getElementById('device-auth-restart');
 
@@ -423,13 +639,14 @@ templ providerDetailScripts() {
 				fetch(`/dashboard/providers/${encodeURIComponent(provider)}/oauth/device/poll`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: `device_code=${encodeURIComponent(deviceCode)}&device_id=${encodeURIComponent(deviceID)}`
+					body: `device_code=${encodeURIComponent(deviceCode)}&device_id=${encodeURIComponent(deviceID)}&account=${encodeURIComponent(account)}`
 				})
 				.then(r => r.json())
 				.then(d => {
 					if (d.status === 'success') {
 						polling = false;
-						window.location.href = `/dashboard/providers/${encodeURIComponent(provider)}?flash=` + encodeURIComponent('Successfully connected OAuth!');
+						const accName = d.account || 'default';
+						window.location.href = `/dashboard/providers/${encodeURIComponent(provider)}?flash=` + encodeURIComponent(`Successfully connected account '${accName}'!`);
 					} else if (d.status === 'error') {
 						polling = false;
 						if (statusEl) statusEl.textContent = 'Error: ' + d.message;

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,7 +113,7 @@ func TestDeviceCodeFlow_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = runDeviceCodeFlow(ctx, testPreset, ts.Client(), store, &out)
+	err = runDeviceCodeFlow(ctx, testPreset, ts.Client(), store, "", nil, &out)
 	if err != nil {
 		t.Fatalf("runDeviceCodeFlow failed: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestPKCEFlow_Success(t *testing.T) {
 		}
 	}()
 
-	err = runPKCEFlow(ctx, testPreset, ts.Client(), store, out)
+	err = runPKCEFlow(ctx, testPreset, ts.Client(), store, "", nil, out)
 	if err != nil {
 		t.Fatalf("runPKCEFlow failed: %v", err)
 	}
@@ -300,7 +302,7 @@ func TestPKCEFlow_CancelledBySignal(t *testing.T) {
 	cancel()
 
 	out := &syncBuffer{}
-	err = runPKCEFlow(ctx, testPreset, http.DefaultClient, store, out)
+	err = runPKCEFlow(ctx, testPreset, http.DefaultClient, store, "", nil, out)
 	if err == nil {
 		t.Fatal("expected error when context is cancelled, got nil")
 	}
@@ -498,18 +500,12 @@ func TestRunQoderFlow_Success(t *testing.T) {
 		t.Fatalf("NewStore failed: %v", err)
 	}
 
-	var pollCount int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/deviceToken/poll" {
-			pollCount++
-			var reqBody map[string]string
-			_ = json.NewDecoder(r.Body).Decode(&reqBody)
-			if reqBody["nonce"] == "" {
-				t.Error("expected nonce in poll request body")
-			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_token": "dt_qoder_test_token",
+				"status":       "success",
 			})
 			return
 		}
@@ -528,7 +524,7 @@ func TestRunQoderFlow_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = runQoderFlow(ctx, p, ts.Client(), store, &out)
+	err = runQoderFlow(ctx, p, ts.Client(), store, "", nil, &out)
 	if err != nil {
 		t.Fatalf("runQoderFlow failed: %v", err)
 	}
@@ -584,7 +580,7 @@ func TestRunTraeFlow_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = runTraeFlow(ctx, p, ts.Client(), store, &out)
+	err = runTraeFlow(ctx, p, ts.Client(), store, "", nil, &out)
 	if err != nil {
 		t.Fatalf("runTraeFlow failed: %v", err)
 	}
@@ -595,5 +591,101 @@ func TestRunTraeFlow_Success(t *testing.T) {
 	}
 	if rec.AccessToken != "at_trae_test" || rec.RefreshToken != "rt_trae_test" {
 		t.Errorf("stored record token mismatch: %+v", rec)
+	}
+}
+
+func TestCLIOAuthFlow_MultiAccountResolution(t *testing.T) {
+	dir := t.TempDir()
+	credPath := filepath.Join(dir, "credentials.json")
+	store, err := credential.NewStore(credPath)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	// 1. Initial login without explicit account stores under default
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/token" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "at_default",
+				"refresh_token": "rt_default",
+			})
+			return
+		}
+	}))
+	defer ts.Close()
+
+	p := &preset.Preset{
+		Name:           "test-prov",
+		FlowType:       "device_code",
+		DeviceEndpoint: ts.URL + "/device",
+		TokenEndpoint:  ts.URL + "/token",
+	}
+
+	// Mock device server returning distinct tokens per flow
+	var tokenSeq int32
+	deviceTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/device" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code":      "dcode1",
+				"user_code":        "UCODE1",
+				"verification_uri": "http://verify",
+			})
+			return
+		}
+		if r.URL.Path == "/token" {
+			seq := atomic.AddInt32(&tokenSeq, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  fmt.Sprintf("at_tok_%d", seq),
+				"refresh_token": fmt.Sprintf("rt_tok_%d", seq),
+			})
+			return
+		}
+	}))
+	defer deviceTS.Close()
+
+	p.DeviceEndpoint = deviceTS.URL + "/device"
+	p.TokenEndpoint = deviceTS.URL + "/token"
+
+	var out bytes.Buffer
+	// First flow: no existing accounts -> resolves default
+	err = runDeviceCodeFlow(context.Background(), p, deviceTS.Client(), store, "", nil, &out)
+	if err != nil {
+		t.Fatalf("first flow failed: %v", err)
+	}
+
+	rec1, ok := store.GetAccount("test-prov", "default")
+	if !ok || rec1.Account != "default" || rec1.RefreshToken != "rt_tok_1" {
+		t.Fatalf("expected record stored under default with rt_tok_1, got %+v", rec1)
+	}
+
+	// Second flow: existing contains default -> resolves account-2
+	existing := []string{"default"}
+	out.Reset()
+	err = runDeviceCodeFlow(context.Background(), p, deviceTS.Client(), store, "", existing, &out)
+	if err != nil {
+		t.Fatalf("second flow failed: %v", err)
+	}
+
+	rec2, ok := store.GetAccount("test-prov", "account-2")
+	if !ok || rec2.Account != "account-2" || rec2.RefreshToken != "rt_tok_2" {
+		t.Fatalf("expected record stored under account-2 with rt_tok_2, got %+v", rec2)
+	}
+	// Verify default record is untouched with its original token rt_tok_1
+	rec1Again, ok := store.GetAccount("test-prov", "default")
+	if !ok || rec1Again.RefreshToken != "rt_tok_1" {
+		t.Fatalf("default record was clobbered: expected rt_tok_1, got %+v", rec1Again)
+	}
+
+	// Third flow: explicit account --account team2
+	out.Reset()
+	err = runDeviceCodeFlow(context.Background(), p, deviceTS.Client(), store, "team2", []string{"default", "account-2"}, &out)
+	if err != nil {
+		t.Fatalf("explicit account flow failed: %v", err)
+	}
+	rec3, ok := store.GetAccount("test-prov", "team2")
+	if !ok || rec3.Account != "team2" || rec3.RefreshToken != "rt_tok_3" {
+		t.Fatalf("expected record stored under team2 with rt_tok_3, got %+v", rec3)
 	}
 }

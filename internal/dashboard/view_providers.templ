@@ -16,10 +16,12 @@ import (
 )
 
 type MaskedConnectionItem struct {
-	Account      string
-	Provider     string
-	RefreshToken string
-	ExpiresAt    string
+	Account            string
+	Provider           string
+	RefreshToken       string
+	ExpiresAt          string
+	Type               string // "oauth" or "static"
+	AffectedComboCount int
 }
 
 type ProviderCardModel struct {
@@ -56,6 +58,9 @@ type ProvidersPageData struct {
 
 templ ProvidersPage(data ProvidersPageData) {
 	<div class="space-y-6">
+		<!-- Flash/error feedback renders as a toast via the layout Toaster's
+		     checkUrlFlash(); no static banner here. -->
+
 		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 			<div>
 				<h2 class="text-xl font-bold tracking-tight text-foreground">Providers</h2>

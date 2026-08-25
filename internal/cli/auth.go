@@ -255,23 +255,69 @@ func cmdAuthLoginWithAccount(ctx context.Context, args []string, accountName str
 		p = &pCopy
 	}
 
+	if accountName != "" {
+		if err := credential.ValidateAccountName(accountName); err != nil {
+			return fmt.Errorf("invalid account name: %w", err)
+		}
+	}
+
+	var topo config.Topology
+	if data, err := os.ReadFile(svc.ConfigPath); err == nil {
+		topo, _ = config.ParseRawTopology(data)
+	}
+	existing := getExistingAccounts(providerName, store, topo)
+
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	switch p.FlowType {
 	case "device_code":
-		return runDeviceCodeFlow(signalCtx, p, client, store, os.Stdout)
+		return runDeviceCodeFlow(signalCtx, p, client, store, accountName, existing, os.Stdout)
 	case "pkce":
-		return runPKCEFlow(signalCtx, p, client, store, os.Stdout)
+		return runPKCEFlow(signalCtx, p, client, store, accountName, existing, os.Stdout)
 	case "qoder":
-		return runQoderFlow(signalCtx, p, client, store, os.Stdout)
+		return runQoderFlow(signalCtx, p, client, store, accountName, existing, os.Stdout)
 	case "trae":
-		return runTraeFlow(signalCtx, p, client, store, os.Stdout)
+		return runTraeFlow(signalCtx, p, client, store, accountName, existing, os.Stdout)
 	default:
 		return fmt.Errorf("unsupported OAuth flow type %q for provider %q", p.FlowType, providerName)
 	}
 }
 
-func runQoderFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, out io.Writer) error {
+func getExistingAccounts(providerName string, store *credential.Store, topo config.Topology) []string {
+	seen := make(map[string]bool)
+	if store != nil {
+		for _, rec := range store.List() {
+			if strings.EqualFold(rec.Provider, providerName) {
+				acc := rec.Account
+				if acc == "" {
+					acc = "default"
+				}
+				seen[acc] = true
+			}
+		}
+	}
+	if p, ok := topo.Providers[providerName]; ok {
+		for _, acc := range p.Accounts {
+			if acc.Name != "" {
+				seen[acc.Name] = true
+			}
+		}
+	} else if p, ok := topo.Providers[strings.ToLower(providerName)]; ok {
+		for _, acc := range p.Accounts {
+			if acc.Name != "" {
+				seen[acc.Name] = true
+			}
+		}
+	}
+	var existing []string
+	for acc := range seen {
+		existing = append(existing, acc)
+	}
+	sort.Strings(existing)
+	return existing
+}
+
+func runQoderFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, accountName string, existing []string, out io.Writer) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -332,24 +378,31 @@ func runQoderFlow(ctx context.Context, p *preset.Preset, client *http.Client, st
 		}
 
 		if token != "" {
+			hint := oauth.ExtractIdentityHint("", token)
+			resolvedAcc, err := credential.ResolveAccount(p.Name, accountName, hint, existing)
+			if err != nil {
+				return fmt.Errorf("resolve account: %w", err)
+			}
 			rec := credential.OAuthRecord{
 				Provider:      p.Name,
+				Account:       resolvedAcc,
 				RefreshToken:  token,
 				AccessToken:   token,
 				ClientID:      p.ClientID,
 				TokenEndpoint: p.TokenEndpoint,
 				Profile:       p.RefreshProfile,
+				IdentityHint:  hint,
 			}
 			if err := store.Save(rec); err != nil {
 				return fmt.Errorf("save credential: %w", err)
 			}
-			fmt.Fprintf(out, "Successfully authenticated provider %q!\n", p.Name)
+			fmt.Fprintf(out, "Successfully authenticated provider %q (account %q)!\n", p.Name, resolvedAcc)
 			return nil
 		}
 	}
 }
 
-func runTraeFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, out io.Writer) error {
+func runTraeFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, accountName string, existing []string, out io.Writer) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -424,19 +477,27 @@ func runTraeFlow(ctx context.Context, p *preset.Preset, client *http.Client, sto
 		exp = time.Now().Add(time.Duration(tokenRes.ExpiresIn) * time.Second)
 	}
 
+	hint := oauth.ExtractIdentityHint("", tokenRes.AccessToken)
+	resolvedAcc, err := credential.ResolveAccount(p.Name, accountName, hint, existing)
+	if err != nil {
+		return fmt.Errorf("resolve account: %w", err)
+	}
+
 	rec := credential.OAuthRecord{
 		Provider:      p.Name,
+		Account:       resolvedAcc,
 		RefreshToken:  tokenRes.RefreshToken,
 		AccessToken:   tokenRes.AccessToken,
 		ExpiresAt:     exp,
 		ClientID:      p.ClientID,
 		TokenEndpoint: p.TokenEndpoint,
 		Profile:       p.RefreshProfile,
+		IdentityHint:  hint,
 	}
 	if err := store.Save(rec); err != nil {
 		return fmt.Errorf("save credential: %w", err)
 	}
-	fmt.Fprintf(out, "Successfully authenticated provider %q!\n", p.Name)
+	fmt.Fprintf(out, "Successfully authenticated provider %q (account %q)!\n", p.Name, resolvedAcc)
 	return nil
 }
 
@@ -462,7 +523,7 @@ func generateDeviceID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-func runDeviceCodeFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, out io.Writer) error {
+func runDeviceCodeFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, accountName string, existing []string, out io.Writer) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -594,6 +655,7 @@ func runDeviceCodeFlow(ctx context.Context, p *preset.Preset, client *http.Clien
 		var tokenRes struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
+			IDToken      string `json:"id_token"`
 			Token        string `json:"token"`
 			TokenType    string `json:"token_type"`
 			ExpiresIn    int64  `json:"expires_in"`
@@ -617,8 +679,14 @@ func runDeviceCodeFlow(ctx context.Context, p *preset.Preset, client *http.Clien
 			if tokenRes.ExpiresIn > 0 {
 				exp = time.Now().Add(time.Duration(tokenRes.ExpiresIn) * time.Second)
 			}
+			identityHint := oauth.ExtractIdentityHint(tokenRes.IDToken, tokenRes.AccessToken)
+			resolvedAcc, err := credential.ResolveAccount(p.Name, accountName, identityHint, existing)
+			if err != nil {
+				return fmt.Errorf("resolve account: %w", err)
+			}
 			rec := credential.OAuthRecord{
 				Provider:            p.Name,
+				Account:             resolvedAcc,
 				RefreshToken:        tokenRes.RefreshToken,
 				AccessToken:         tokenRes.AccessToken,
 				ExpiresAt:           exp,
@@ -629,11 +697,12 @@ func runDeviceCodeFlow(ctx context.Context, p *preset.Preset, client *http.Clien
 				Scopes:              p.Scopes,
 				DeviceID:            deviceID,
 				DeviceHeaderProfile: p.DeviceHeaderProfile,
+				IdentityHint:        identityHint,
 			}
 			if err := store.Save(rec); err != nil {
 				return fmt.Errorf("save credential: %w", err)
 			}
-			fmt.Fprintf(out, "Successfully authenticated provider %q!\n", p.Name)
+			fmt.Fprintf(out, "Successfully authenticated provider %q (account %q)!\n", p.Name, resolvedAcc)
 			return nil
 		}
 
@@ -725,7 +794,7 @@ func buildAuthorizeURL(p *preset.Preset, port int, state, challenge string) (str
 	return u.String(), nil
 }
 
-func runPKCEFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, out io.Writer) error {
+func runPKCEFlow(ctx context.Context, p *preset.Preset, client *http.Client, store *credential.Store, accountName string, existing []string, out io.Writer) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -811,11 +880,17 @@ func runPKCEFlow(ctx context.Context, p *preset.Preset, client *http.Client, sto
 		return err
 	}
 
+	resolvedAcc, err := credential.ResolveAccount(p.Name, accountName, rec.IdentityHint, existing)
+	if err != nil {
+		return fmt.Errorf("resolve account: %w", err)
+	}
+	rec.Account = resolvedAcc
+
 	if err := store.Save(*rec); err != nil {
 		return fmt.Errorf("save credential: %w", err)
 	}
 
-	fmt.Fprintf(out, "Successfully authenticated provider %q!\n", p.Name)
+	fmt.Fprintf(out, "Successfully authenticated provider %q (account %q)!\n", p.Name, resolvedAcc)
 	return nil
 }
 

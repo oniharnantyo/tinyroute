@@ -65,8 +65,13 @@ func (c *claudeAdapter) Detect() (Status, error) {
 					maskedKey = MaskKey(token)
 				}
 				for _, slot := range c.ModelSlots() {
-					envKey := "ANTHROPIC_DEFAULT_MODEL_" + strings.ToUpper(slot.ID)
+					envKey := "ANTHROPIC_DEFAULT_" + strings.ToUpper(slot.ID) + "_MODEL"
+					if slot.ID == "subagent" {
+						envKey = "CLAUDE_CODE_SUBAGENT_MODEL"
+					}
 					if val, ok := envMap[envKey].(string); ok && val != "" {
+						slotValues[slot.ID] = val
+					} else if val, ok := envMap["ANTHROPIC_DEFAULT_MODEL_"+strings.ToUpper(slot.ID)].(string); ok && val != "" {
 						slotValues[slot.ID] = val
 					}
 				}

@@ -11,6 +11,8 @@ import (
 	"github.com/oniharnantyo/tinyroute/internal/cli/interactive"
 	"github.com/oniharnantyo/tinyroute/internal/clients"
 	"github.com/oniharnantyo/tinyroute/internal/config"
+	"github.com/oniharnantyo/tinyroute/internal/route"
+	"github.com/oniharnantyo/tinyroute/internal/translate"
 	"github.com/urfave/cli/v3"
 )
 
@@ -200,21 +202,25 @@ func discoverModelsForDialect(dialect string) []string {
 	}
 	seen := map[string]bool{}
 	var result []string
-	for _, r := range topo.Routes {
-		if r.From == dialect || r.From == "*" {
-			for _, hop := range r.Chain {
-				parts := strings.Split(hop, ":")
-				if len(parts) == 2 {
-					m := parts[1]
-					if m != "" && m != "$model" && !seen[m] {
-						seen[m] = true
-						result = append(result, m)
-					}
+	for _, p := range topo.Providers {
+		if p.Dialect == dialect || dialect == "" || translate.CanTranslate(dialect, p.Dialect) {
+			for _, m := range p.Models {
+				if m != "" && !seen[m] {
+					seen[m] = true
+					result = append(result, m)
 				}
 			}
-			if r.Match != "" && r.Match != "*" && !strings.Contains(r.Match, "*") && !seen[r.Match] {
-				seen[r.Match] = true
-				result = append(result, r.Match)
+		}
+	}
+	r := route.New(topo.Providers, route.WithCombos(topo.Combos), route.WithTranslatable(translate.CanTranslate))
+	for _, cb := range topo.Combos {
+		if cb.Name != "" && !seen[cb.Name] {
+			if dialect == "" {
+				seen[cb.Name] = true
+				result = append(result, cb.Name)
+			} else if _, err := r.Resolve(dialect, cb.Name); err == nil {
+				seen[cb.Name] = true
+				result = append(result, cb.Name)
 			}
 		}
 	}
