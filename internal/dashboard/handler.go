@@ -67,12 +67,21 @@ func NewHandler(deps *Deps) *DashboardHandler {
 func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 	h := NewHandler(deps)
 
-	// Static assets handler
+	// Vite SPA embedded static assets & HTML handler
+	mux.Handle("GET /dashboard/assets/", SPAHandler())
+	mux.Handle("GET /dashboard/logos/", SPAHandler())
+
+	// Static fallback assets handler for backward compatibility
 	assetsFS := http.FileServer(assets.FS())
-	mux.Handle("GET /dashboard/assets/", http.StripPrefix("/dashboard/assets/", assetsFS))
+	mux.Handle("GET /dashboard/legacy-assets/", http.StripPrefix("/dashboard/legacy-assets/", assetsFS))
 
 	// shadcn-templ component JS bundle (inputgroup, etc.)
 	mux.Handle("GET /components/", components.ScriptsHandler())
+
+	// Public Auth API routes
+	mux.HandleFunc("GET /dashboard/api/auth/status", h.handleAPIAuthStatus)
+	mux.HandleFunc("POST /dashboard/api/auth/login", h.handleAPIAuthLogin)
+	mux.HandleFunc("POST /dashboard/api/auth/logout", h.handleAPIAuthLogout)
 
 	// Auth routes
 	mux.HandleFunc("GET /dashboard/login", h.handleLoginView)
@@ -81,6 +90,44 @@ func RegisterRoutes(mux *http.ServeMux, deps *Deps) {
 
 	// Protected dashboard routes
 	protectedMux := http.NewServeMux()
+
+	// Protected JSON REST API routes
+	protectedMux.HandleFunc("GET /dashboard/api/overview", h.handleAPIOverview)
+	protectedMux.HandleFunc("GET /dashboard/api/providers", h.handleAPIProviders)
+	protectedMux.HandleFunc("GET /dashboard/api/providers/{name}", h.handleAPIProviderDetail)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/add", h.handleAPIProviderAdd)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/add-custom", h.handleAPICustomProviderAdd)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/delete", h.handleAPIProviderDelete)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/credential", h.handleAPIProviderCredential)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/credential/delete", h.handleAPIProviderCredentialDelete)
+	protectedMux.HandleFunc("POST /dashboard/api/providers/account/rename", h.handleAPIProviderAccountRename)
+	protectedMux.HandleFunc("POST /dashboard/api/models/add", h.handleAPIModelAdd)
+	protectedMux.HandleFunc("POST /dashboard/api/models/remove", h.handleAPIModelRemove)
+	protectedMux.HandleFunc("POST /dashboard/api/models/test", h.handleAPIModelTest)
+
+	protectedMux.HandleFunc("GET /dashboard/api/combos", h.handleAPICombos)
+	protectedMux.HandleFunc("POST /dashboard/api/combos/wizard", h.handleAPICombosWizard)
+	protectedMux.HandleFunc("POST /dashboard/api/combos/toggle", h.handleAPICombosToggle)
+	protectedMux.HandleFunc("POST /dashboard/api/combos/delete", h.handleAPICombosDelete)
+
+	protectedMux.HandleFunc("GET /dashboard/api/history", h.handleAPIHistory)
+	protectedMux.HandleFunc("GET /dashboard/api/history/{id}", h.handleAPIHistoryDetail)
+
+	protectedMux.HandleFunc("GET /dashboard/api/keys", h.handleAPIKeys)
+	protectedMux.HandleFunc("POST /dashboard/api/keys/create", h.handleAPIKeyCreate)
+	protectedMux.HandleFunc("POST /dashboard/api/keys/{id}/update", h.handleAPIKeyUpdate)
+	protectedMux.HandleFunc("POST /dashboard/api/keys/{id}/revoke", h.handleAPIKeyRevoke)
+
+	protectedMux.HandleFunc("GET /dashboard/api/settings", h.handleAPISettings)
+	protectedMux.HandleFunc("POST /dashboard/api/settings/password", h.handleAPIPasswordChange)
+
+	protectedMux.HandleFunc("GET /dashboard/api/clients", h.handleAPIClients)
+	protectedMux.HandleFunc("GET /dashboard/api/clients/{id}", h.handleAPIClientDetail)
+	protectedMux.HandleFunc("POST /dashboard/api/clients/{id}/plan", h.handleAPIClientPlan)
+	protectedMux.HandleFunc("POST /dashboard/api/clients/{id}/apply", h.handleAPIClientApply)
+	protectedMux.HandleFunc("POST /dashboard/api/clients/{id}/reset", h.handleAPIClientReset)
+
+	// Protected HTML & Action routes
 	protectedMux.HandleFunc("GET /dashboard", h.handleOverviewView)
 	protectedMux.HandleFunc("GET /dashboard/{$}", h.handleOverviewView)
 	protectedMux.HandleFunc("GET /dashboard/overview", h.handleOverviewView)
@@ -132,6 +179,10 @@ func (h *DashboardHandler) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(SessionCookieName)
 		if err != nil || cookie == nil || !h.deps.SessionStore.ValidateSession(cookie.Value) {
+			if strings.HasPrefix(r.URL.Path, "/dashboard/api/") {
+				writeError(w, http.StatusUnauthorized, "Unauthorized")
+				return
+			}
 			http.Redirect(w, r, "/dashboard/login", http.StatusSeeOther)
 			return
 		}
@@ -497,17 +548,43 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		return
 	}
 
+	data, found, errRedirect := h.buildProviderDetailData(provName)
+	if errRedirect != "" || !found {
+		msg := errRedirect
+		if msg == "" {
+			msg = "Provider not found"
+		}
+		http.Redirect(w, r, "/dashboard/providers?error="+url.QueryEscape(msg), http.StatusSeeOther)
+		return
+	}
+
+	// Device-flow state arrives via query parameters after the OAuth start
+	// redirect; it is presentation-only and not part of the shared builder.
+	data.DeviceCode = r.URL.Query().Get("device_code")
+	data.UserCode = r.URL.Query().Get("user_code")
+	data.VerificationURI = r.URL.Query().Get("verification_uri")
+	data.DeviceID = r.URL.Query().Get("device_id")
+	data.Account = r.URL.Query().Get("account")
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	Layout("Provider Detail", "providers", h.deps.PasswordStore.IsDefaultPassword(), ProviderDetailPage(data)).Render(r.Context(), w)
+}
+
+// buildProviderDetailData assembles the provider detail view model — the
+// status ladder, merged masked connections, and the full model catalog — for
+// both the templ view and the JSON API. found=false means the name is neither
+// in the topology nor a known preset; errRedirect carries a fatal error
+// message.
+func (h *DashboardHandler) buildProviderDetailData(provName string) (ProviderDetailPageData, bool, string) {
 	topo := h.deps.TopologyWatcher.Get()
 	if topo == nil {
-		http.Redirect(w, r, "/dashboard/providers?error="+url.QueryEscape("Topology unavailable"), http.StatusSeeOther)
-		return
+		return ProviderDetailPageData{}, false, "Topology unavailable"
 	}
 
 	p, configured := topo.Providers[provName]
 	pre := preset.Get(provName)
 	if !configured && pre == nil {
-		http.Redirect(w, r, "/dashboard/providers?error="+url.QueryEscape("Provider not found"), http.StatusSeeOther)
-		return
+		return ProviderDetailPageData{}, false, ""
 	}
 
 	dialect := ""
@@ -725,7 +802,7 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		}
 	}
 
-	data := ProviderDetailPageData{
+	return ProviderDetailPageData{
 		Name:              provName,
 		DisplayName:       dispName,
 		Logo:              logo,
@@ -740,15 +817,7 @@ func (h *DashboardHandler) handleProviderDetailView(w http.ResponseWriter, r *ht
 		Models:            allModels,
 		WhitelistedModels: whitelistedModels,
 		AvailableModels:   availableModels,
-		DeviceCode:        r.URL.Query().Get("device_code"),
-		UserCode:          r.URL.Query().Get("user_code"),
-		VerificationURI:   r.URL.Query().Get("verification_uri"),
-		DeviceID:          r.URL.Query().Get("device_id"),
-		Account:           r.URL.Query().Get("account"),
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	Layout("Provider Detail", "providers", h.deps.PasswordStore.IsDefaultPassword(), ProviderDetailPage(data)).Render(r.Context(), w)
+	}, true, ""
 }
 
 // splitCatalogModels partitions a provider's catalog listing into the models
@@ -2052,8 +2121,8 @@ func (h *DashboardHandler) handlePasswordChange(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if len(newP) < 6 {
-		http.Redirect(w, r, "/dashboard/settings?error="+url.QueryEscape("Password must be at least 6 characters"), http.StatusSeeOther)
+	if len(newP) < 8 {
+		http.Redirect(w, r, "/dashboard/settings?error="+url.QueryEscape("Password must be at least 8 characters"), http.StatusSeeOther)
 		return
 	}
 

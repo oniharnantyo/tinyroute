@@ -1,0 +1,22 @@
+[
+  {
+    "date": "2026-08-25",
+    "scope": "app",
+    "genre": "modern-minimal",
+    "macrostructure": "Workbench (app family)",
+    "theme": "custom",
+    "theme_axes": "dark / grotesk-sans / chromatic-other (cyan 195)",
+    "enrichment": "none",
+    "brief": "tinyroute dashboard refactor — flat Cyan Charcoal ops console, design.md-locked"
+  },
+  {
+    "date": "2025-11-30",
+    "scope": "app",
+    "genre": "atmospheric",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "dark / grotesk-sans / cool (violet 292)",
+    "enrichment": "E4 interactive-preview",
+    "brief": "inferred from web/src/styles/tokens.css stamp — Obsidian violet, glass + glow (superseded)"
+  }
+]

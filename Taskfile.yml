@@ -2,29 +2,41 @@ version: "3"
 
 # tinyroute dev workflow.
 #   APP_PORT   = where the Go gateway listens (TINYROUTE_LISTEN default 8787).
-#                templ's dev server (7331) proxies to it; browse http://localhost:7331.
-#   CSS input  = Tailwind source (input.css); output styles.css is go:embedded
-#                by internal/dashboard/assets/assets.go and served at /dashboard/assets/styles.css.
+#   Vite dev   = runs on http://localhost:5173 with proxy to http://localhost:8787.
+#   Vite build = outputs production bundle to internal/dashboard/dist/ (go:embed all:dist).
 vars:
   APP_PORT: "8787"
-  CSS_INPUT: "./internal/dashboard/assets/input.css"
-  CSS_OUTPUT: "./internal/dashboard/assets/styles.css"
 
 tasks:
-  templ:
-    desc: Run templ watcher + dev proxy with live reload (Go restarts on .templ change)
+  build:web:
+    desc: Build Vite + React + Tailwind CSS dashboard to internal/dashboard/dist
+    dir: web
     cmds:
-      - templ generate --watch --proxy="http://localhost:{{.APP_PORT}}" --cmd="go run . serve"
+      - pnpm build
 
-  tailwind:
-    desc: Watch Tailwind v3 (input.css -> styles.css)
+  dev:web:
+    desc: Run Vite dev server for web dashboard with HMR (http://localhost:5173)
+    dir: web
     cmds:
-      # Pin v3: input.css + tailwind.config.js are v3-authored (@tailwind dirs,
-      # @apply with variants like selection:). v4 rejects @apply selection:... and
-      # ignores the JS config / .templ content paths. npx fetches v3 on demand.
-      - "npx -y tailwindcss@3.4.19 -i {{.CSS_INPUT}} -o {{.CSS_OUTPUT}} --watch"
+      - pnpm dev
+
+  dev:gateway:
+    desc: Run Go tinyroute gateway daemon
+    cmds:
+      - go run . serve
 
   dev:
-    desc: Start hot-reload dev server (templ + tailwind, in parallel)
+    desc: Start hot-reload dev environment (Go gateway + Vite frontend)
     cmds:
-      - task --parallel tailwind templ
+      - task --parallel dev:gateway dev:web
+
+  test:
+    desc: Run all Go unit & integration tests
+    cmds:
+      - go test ./...
+
+  build:
+    desc: Build frontend assets and Go tinyroute binary
+    cmds:
+      - task: build:web
+      - go build -v -o bin/tinyroute .
